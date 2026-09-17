@@ -1,10 +1,16 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 )
 
 type HealthResponse struct {
@@ -38,17 +44,48 @@ func main() {
 	router := newRouter()
 
 	server := &http.Server{
-		Addr:    ":8080",
-		Handler: router,
+		Addr:         ":8080",
+		Handler:      router,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 
-	log.Println("server listening on :8080")
+	shutdownCtx, stop := signal.NotifyContext(
+		context.Background(),
+		os.Interrupt,
+		syscall.SIGTERM,
+	)
 
-	err := server.ListenAndServe()
+	defer stop()
 
-	if err != nil {
-		log.Fatal(err)
+	go func() {
+		log.Println("server listening on :8080")
+
+		err := server.ListenAndServe()
+
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Printf("server error: %v", err)
+		}
+	}()
+
+	<-shutdownCtx.Done()
+
+	log.Println("shutting down server...")
+
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		5*time.Second,
+	)
+
+	defer cancel()
+
+	if err := server.Shutdown(ctx); err != nil {
+		log.Printf("server shutdown error: %v", err)
 	}
+
+	log.Println("server stopped")
+
 }
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {
