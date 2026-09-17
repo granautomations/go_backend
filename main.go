@@ -23,19 +23,31 @@ type Reading struct {
 	SoilMoisture float32 `json:"soil_moisture"`
 }
 
-func main() {
+func newRouter() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /health", healthHandler)
 	mux.HandleFunc("GET /devices/{id}", deviceHandler)
 	mux.HandleFunc("GET /devices/{id}/readings/latest", latestHandler)
 
+	return mux
+}
+
+func main() {
+
+	router := newRouter()
+
+	server := &http.Server{
+		Addr:    ":8080",
+		Handler: router,
+	}
+
 	log.Println("server listening on :8080")
 
-	err := http.ListenAndServe(":8080", mux)
+	err := server.ListenAndServe()
 
 	if err != nil {
-		fmt.Println("server error: ", err)
+		log.Fatal(err)
 	}
 }
 
