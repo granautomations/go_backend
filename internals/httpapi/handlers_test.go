@@ -1,4 +1,4 @@
-package main
+package httpapi
 
 import (
 	"encoding/json"
@@ -47,7 +47,7 @@ func TestHealthHandler(t *testing.T) {
 }
 
 func TestLatestHandler(t *testing.T) {
-	router := newRouter()
+	router := NewRouter()
 
 	req := httptest.NewRequest(
 		http.MethodGet,
