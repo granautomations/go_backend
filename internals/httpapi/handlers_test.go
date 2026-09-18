@@ -36,6 +36,9 @@ func TestHealthHandler(t *testing.T) {
 	}
 
 	var response HealthResponse
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
 
 	if response.Status != "ok" {
 		t.Errorf(
