@@ -23,6 +23,16 @@ type Reading struct {
 	SoilMoisture float32 `json:"soil_moisture"`
 }
 
+type CreateReadingRequest struct {
+	Temperature  float32 `json:"temperature"`
+	Humidity     float32 `json:"humidity"`
+	SoilMoisture float32 `json:"soil_moisture"`
+}
+
+type ErrorResponse struct {
+	Error string `json:"error"`
+}
+
 func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -56,17 +66,43 @@ func deviceHandler(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func latestHandler(w http.ResponseWriter, r *http.Request) {
+func (h *handler) latestHandler(w http.ResponseWriter, r *http.Request) {
 
 	id := r.PathValue("id")
 
-	response := Reading{
-		DeviceID:     id,
-		Temperature:  24.3,
-		Humidity:     61.2,
-		SoilMoisture: 43,
+	reading, found := h.readings.Latest(id)
+
+	if !found {
+		writeJSON(w, http.StatusNotFound, ErrorResponse{
+			Error: "reading not found",
+		})
+		return
 	}
 
-	writeJSON(w, http.StatusOK, response)
+	writeJSON(w, http.StatusOK, reading)
 
+}
+
+func (h *handler) createReadingHandler(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	var request CreateReadingRequest
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{
+			Error: "invalid JSON body",
+		})
+		return
+	}
+
+	reading := Reading{
+		DeviceID:     id,
+		Temperature:  request.Temperature,
+		Humidity:     request.Humidity,
+		SoilMoisture: request.SoilMoisture,
+	}
+
+	h.readings.Save(reading)
+
+	writeJSON(w, http.StatusCreated, reading)
 }
