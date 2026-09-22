@@ -3,6 +3,7 @@ package httpapi
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 )
 
@@ -22,14 +23,20 @@ type Reading struct {
 	SoilMoisture float32 `json:"soil_moisture"`
 }
 
+func writeJSON(w http.ResponseWriter, status int, payload any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(payload); err != nil {
+		log.Printf("encode JSON response: %v", err)
+	}
+}
+
 func healthHandler(w http.ResponseWriter, r *http.Request) {
 	response := HealthResponse{
 		Status: "ok",
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-
-	json.NewEncoder(w).Encode(response)
+	writeJSON(w, http.StatusOK, response)
 }
 
 func deviceHandler(w http.ResponseWriter, r *http.Request) {
@@ -45,9 +52,7 @@ func deviceHandler(w http.ResponseWriter, r *http.Request) {
 		Name: "ESP32",
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-
-	json.NewEncoder(w).Encode(device)
+	writeJSON(w, http.StatusOK, device)
 
 }
 
@@ -62,7 +67,6 @@ func latestHandler(w http.ResponseWriter, r *http.Request) {
 		SoilMoisture: 43,
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	writeJSON(w, http.StatusOK, response)
 
 }

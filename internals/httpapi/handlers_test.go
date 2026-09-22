@@ -84,3 +84,53 @@ func TestLatestHandler(t *testing.T) {
 		)
 	}
 }
+
+func TestDeviceHandler(t *testing.T) {
+	router := NewRouter()
+
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/devices/plant-8",
+		nil,
+	)
+
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf(
+			"expected status %d, got %d",
+			http.StatusOK,
+			rec.Code,
+		)
+	}
+
+	var response Device
+
+	err := json.NewDecoder(rec.Body).Decode(&response)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if response.ID != "plant-8" {
+		t.Errorf(
+			"expected device ID plant-8, got %s",
+			response.ID,
+		)
+	}
+
+	if rec.Header().Get("Content-Type") != "application/json" {
+		t.Errorf(
+			"expected Content-Type application/json, got %s",
+			rec.Header().Get("Content-Type"),
+		)
+	}
+
+	if response.Name != "ESP32" {
+		t.Errorf(
+			"expected device name ESP32, got %s",
+			response.Name,
+		)
+	}
+}
