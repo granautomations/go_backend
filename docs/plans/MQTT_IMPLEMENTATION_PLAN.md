@@ -13,7 +13,7 @@ The existing HTTP server in `cmd/server/main.go` remains the application entry p
 | Temperature | `home/indoor/<device-id>/temperature` | `{"value":28.10,"timestamp":1790103271}` |
 | Humidity | `home/indoor/<device-id>/humidity` | `{"value":37.00,"timestamp":1790103271}` |
 
-Subscribe to `home/indoor/+/temperature` and `home/indoor/+/humidity`. MQTT's `+` matches exactly one topic level, so it admits multiple device IDs without matching unrelated topic layouts. Treat `<device-id>` as one nonempty topic level; reject `/`, `+`, and `#` when constructing publish topics. The ESP32 payload contains a numeric `value` and a Unix timestamp in seconds; it has no `unit` field. Require a finite value and a valid timestamp, then derive `C` or `percent` from the metric named in the topic. Log the parsed fields plus topic and device ID. Do not treat a received message as trusted merely because it came from the local broker.
+Use four topic levels: `<namespace>/<location>/<device-id>/<metric>`. `home` and `indoor` are the initial values, not hard-coded parser requirements. Subscribe initially to `home/+/+/+`; the set of subscription filters can become configuration when other namespaces are needed. MQTT's `+` matches exactly one topic level. Require all four levels to be nonempty and reject `/`, `+`, and `#` in values used to construct publish topics. Keep topic-shape parsing separate from a registry of supported metrics and their units. Initially that registry contains `temperature` → `C` and `humidity` → `percent`; adding `pressure` later adds a metric definition without rewriting the topic parser. Unknown metrics are logged and rejected from telemetry processing. The ESP32 payload contains a numeric `value` and a Unix timestamp in seconds; it has no `unit` field. Require a finite value and a valid timestamp, then derive the unit from the metric registry. Log the parsed fields plus full topic context. Do not treat a received message as trusted merely because it came from the local broker.
 
 ## Client choice
 
@@ -28,7 +28,7 @@ After each step, run the focused test or manual check, explain the result, and o
 ### 1. Establish a local broker and inspect the wire contract
 
 - Run Mosquitto on the development machine at port 1883, reachable from both the Go backend and the ESP32 on the local network. Document how to start it and how the ESP32 finds the broker. Add a small repository configuration or Compose setup only if it makes local setup reproducible.
-- Use `mosquitto_sub` on `home/indoor/+/temperature` and `mosquitto_pub -q 1` to send the sample temperature JSON. Repeat for humidity. Confirm the exact topic and payload received.
+- Use `mosquitto_sub` on `home/+/+/+` and `mosquitto_pub -q 1` to send the sample temperature JSON. Repeat for humidity. Confirm the exact topic and payload received.
 - Learn: a broker routes messages by topic; a publisher and subscriber do not call each other directly. A subscription filter can contain wildcards; a published topic cannot.
 
 **Done when:** the command-line clients exchange both sample messages at QoS 1.
@@ -36,8 +36,8 @@ After each step, run the focused test or manual check, explain the result, and o
 ### 2. Model and validate one telemetry message
 
 - Add an MQTT-focused package, for example `internals/mqttservice`, with a telemetry type and a parser that takes `(topic string, payload []byte)` and returns a reading or an error.
-- Use a small wire struct with JSON tags, `float64` for the measurement, and `int64` for Unix seconds. Convert the timestamp with `time.Unix` when creating the internal reading. Check the topic shape, device ID, metric, missing fields, timestamp, and payload. Derive the unit from the metric. Keep parsing independent of the MQTT library so it is easy to test.
-- Write table-driven unit tests for both valid samples and invalid JSON, missing fields, bad timestamp, non-finite value, and malformed topic.
+- Use a small wire struct with JSON tags, `float64` for the measurement, and `int64` for Unix seconds. Convert the timestamp with `time.Unix` when creating the internal reading. Parse four nonempty topic levels into namespace, location, device ID, and metric. Validate supported metrics against a separate registry, then derive the unit. Check missing fields, timestamp, and payload. Keep parsing independent of the MQTT library so it is easy to test.
+- Write table-driven unit tests for valid topics in different locations, malformed topics, supported and unsupported metrics, invalid JSON, missing fields, bad timestamp, and non-finite value.
 - Learn: `struct` and JSON tags define the data contract; `[]byte` is the bytes received from the network; `(value, error)` makes failure explicit; table-driven tests exercise one rule with many examples.
 
 **Done when:** parsing produces a typed reading for both examples and clear errors for invalid input.
@@ -46,7 +46,7 @@ After each step, run the focused test or manual check, explain the result, and o
 
 - Add a service with configuration for broker URL and client ID. Accept a `*slog.Logger` and a small message-processing function or interface so logging can later be replaced by PostgreSQL persistence.
 - Configure TCP, a stable client ID, `CleanSession(false)`, QoS 1, automatic reconnect, a finite connection timeout, and connection callbacks. Register the message handler before connecting so resumed-session deliveries have a handler.
-- On each connection, confirm the two subscriptions are active; log subscription errors. In the message handler, parse and log the reading. Keep this callback short so it does not stall network handling.
+- On each connection, confirm the configured topic subscriptions are active; log subscription errors. In the message handler, parse and log the reading. Keep this callback short so it does not stall network handling.
 - Log connection, disconnect, reconnect attempt, subscription failure, parse failure, and received-message events with structured fields. Keep internal counters for connected state, received messages, invalid messages, and publish failures; an HTTP metrics route is not required yet.
 - Learn: constructors and interfaces express dependencies; callbacks are functions the library invokes on events; `slog` adds searchable key/value fields; callbacks may run concurrently, so shared counters need synchronization or atomics.
 
