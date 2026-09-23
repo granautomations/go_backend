@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -17,9 +18,11 @@ type Config struct {
 }
 
 type Service struct {
-	client mqtt.Client
-	cfg    Config
-	logger *slog.Logger
+	client    mqtt.Client
+	cfg       Config
+	logger    *slog.Logger
+	ready     chan error
+	readyOnce sync.Once
 }
 
 func newClientOptions(cfg Config) (*mqtt.ClientOptions, error) {
@@ -58,9 +61,11 @@ func NewService(cfg Config, logger *slog.Logger) (*Service, error) {
 	service := &Service{
 		cfg:    cfg,
 		logger: logger,
+		ready:  make(chan error, 1),
 	}
 
 	options.SetDefaultPublishHandler(service.handleMessage)
+	options.SetOnConnectHandler(service.onConnect)
 
 	service.client = mqtt.NewClient(options)
 
@@ -96,8 +101,61 @@ func (s *Service) Connect() error {
 		return fmt.Errorf("connect to MQTT broker: %w", err)
 	}
 
+	select {
+	case err := <-s.ready:
+		if err != nil {
+			return fmt.Errorf("subscribe to MQTT topics: %w", err)
+		}
+	case <-time.After(10 * time.Second):
+		return errors.New("timed out waiting for MQTT subscription")
+	}
+
 	s.logger.Info("mqtt connected", "broker", s.cfg.BrokerURL)
 	return nil
+}
+
+func (s *Service) onConnect(client mqtt.Client) {
+	filters := make(map[string]byte, len(s.cfg.TopicFilters))
+	for _, filter := range s.cfg.TopicFilters {
+		filters[filter] = 1 // request QoS 1
+	}
+
+	token := client.SubscribeMultiple(filters, nil)
+	token.Wait()
+	if err := token.Error(); err != nil {
+		s.logger.Error("mqtt subscription failed", "error", err)
+		s.reportInitialSubscription(err)
+		return
+	}
+
+	subToken, ok := token.(*mqtt.SubscribeToken)
+	if !ok {
+		err := fmt.Errorf("unexpected MQTT subscription token: %T", token)
+		s.logger.Error("mqtt subscription failed", "error", err)
+		s.reportInitialSubscription(err)
+		return
+	}
+
+	granted := subToken.Result()
+	for filter := range filters {
+		qos, found := granted[filter]
+		if !found || qos != 1 {
+			err := fmt.Errorf("MQTT subscription %q not granted at QoS 1 (granted %d, found %t)",
+				filter, qos, found)
+			s.logger.Error("mqtt subscription failed", "error", err)
+			s.reportInitialSubscription(err)
+			return
+		}
+	}
+
+	s.reportInitialSubscription(nil)
+	s.logger.Info("mqtt subscription acknowledged", "filters", s.cfg.TopicFilters)
+}
+
+func (s *Service) reportInitialSubscription(err error) {
+	s.readyOnce.Do(func() {
+		s.ready <- err
+	})
 }
 
 func (s *Service) Close() {

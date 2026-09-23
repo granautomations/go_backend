@@ -17,8 +17,10 @@ func TestServiceConnect(t *testing.T) {
 	}
 
 	cfg := Config{
-		BrokerURL: brokerURL,
-		ClientID:  fmt.Sprintf("backend-test-%d", time.Now().UnixNano()),
+		BrokerURL:    brokerURL,
+		ClientID:     fmt.Sprintf("backend-test-%d", time.Now().UnixNano()),
+		TopicFilters: []string{"home/+/+/+"},
+		Units:        map[string]string{"temperature": "C", "humidity": "percent"},
 	}
 
 	service, err := NewService(cfg, slog.Default())
