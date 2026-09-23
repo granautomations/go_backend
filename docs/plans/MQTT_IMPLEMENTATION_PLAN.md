@@ -10,10 +10,10 @@ The existing HTTP server in `cmd/server/main.go` remains the application entry p
 
 | Kind | Topic | Example payload |
 | --- | --- | --- |
-| Temperature | `home/indoor/<device-id>/temperature` | `{"value":22.4,"unit":"C","timestamp":"2026-09-22T10:00:00Z"}` |
-| Humidity | `home/indoor/<device-id>/humidity` | `{"value":48.2,"unit":"percent","timestamp":"2026-09-22T10:00:00Z"}` |
+| Temperature | `home/indoor/<device-id>/temperature` | `{"value":28.10,"timestamp":1790103271}` |
+| Humidity | `home/indoor/<device-id>/humidity` | `{"value":37.00,"timestamp":1790103271}` |
 
-Subscribe to `home/indoor/+/temperature` and `home/indoor/+/humidity`. MQTT's `+` matches exactly one topic level, so it admits multiple device IDs without matching unrelated topic layouts. Treat `<device-id>` as one nonempty topic level; reject `/`, `+`, and `#` when constructing publish topics. Require a finite numeric `value`, the expected `unit` for the topic, and a valid RFC 3339 timestamp. Log the parsed fields plus topic and device ID. Do not treat a received message as trusted merely because it came from the local broker.
+Subscribe to `home/indoor/+/temperature` and `home/indoor/+/humidity`. MQTT's `+` matches exactly one topic level, so it admits multiple device IDs without matching unrelated topic layouts. Treat `<device-id>` as one nonempty topic level; reject `/`, `+`, and `#` when constructing publish topics. The ESP32 payload contains a numeric `value` and a Unix timestamp in seconds; it has no `unit` field. Require a finite value and a valid timestamp, then derive `C` or `percent` from the metric named in the topic. Log the parsed fields plus topic and device ID. Do not treat a received message as trusted merely because it came from the local broker.
 
 ## Client choice
 
@@ -27,7 +27,7 @@ After each step, run the focused test or manual check, explain the result, and o
 
 ### 1. Establish a local broker and inspect the wire contract
 
-- Run Mosquitto locally on `127.0.0.1:1883`. Use a local-only listener and document how to start it. Add a small repository configuration or Compose setup only if it makes local setup reproducible.
+- Run Mosquitto on the development machine at port 1883, reachable from both the Go backend and the ESP32 on the local network. Document how to start it and how the ESP32 finds the broker. Add a small repository configuration or Compose setup only if it makes local setup reproducible.
 - Use `mosquitto_sub` on `home/indoor/+/temperature` and `mosquitto_pub -q 1` to send the sample temperature JSON. Repeat for humidity. Confirm the exact topic and payload received.
 - Learn: a broker routes messages by topic; a publisher and subscriber do not call each other directly. A subscription filter can contain wildcards; a published topic cannot.
 
@@ -36,8 +36,8 @@ After each step, run the focused test or manual check, explain the result, and o
 ### 2. Model and validate one telemetry message
 
 - Add an MQTT-focused package, for example `internals/mqttservice`, with a telemetry type and a parser that takes `(topic string, payload []byte)` and returns a reading or an error.
-- Use struct fields with JSON tags, `float64` for the measurement, and `time.Time` for the RFC 3339 timestamp. Check the topic shape, device ID, metric, unit, and payload. Keep parsing independent of the MQTT library so it is easy to test.
-- Write table-driven unit tests for both valid samples and invalid JSON, wrong unit, bad timestamp, non-finite value, and malformed topic.
+- Use a small wire struct with JSON tags, `float64` for the measurement, and `int64` for Unix seconds. Convert the timestamp with `time.Unix` when creating the internal reading. Check the topic shape, device ID, metric, missing fields, timestamp, and payload. Derive the unit from the metric. Keep parsing independent of the MQTT library so it is easy to test.
+- Write table-driven unit tests for both valid samples and invalid JSON, missing fields, bad timestamp, non-finite value, and malformed topic.
 - Learn: `struct` and JSON tags define the data contract; `[]byte` is the bytes received from the network; `(value, error)` makes failure explicit; table-driven tests exercise one rule with many examples.
 
 **Done when:** parsing produces a typed reading for both examples and clear errors for invalid input.
