@@ -8,8 +8,11 @@ import (
 	"time"
 )
 
-//MQTT_TEST_BROKER=tcp://127.0.0.1:1883 go test ./internals/mqttservice -run '^TestServiceConnect$' -v
-
+// TestServiceConnect checks readiness before connection, after subscription,
+// and after shutdown against a running MQTT broker.
+//
+// Run with MQTT_TEST_BROKER=tcp://127.0.0.1:1883 and select this test with
+// go test ./internals/mqttservice -run '^TestServiceConnect$' -v.
 func TestServiceConnect(t *testing.T) {
 	brokerURL := os.Getenv("MQTT_TEST_BROKER")
 	if brokerURL == "" {
@@ -27,9 +30,23 @@ func TestServiceConnect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(service.Close)
+
+	t.Cleanup(func() {
+		service.Close()
+		if service.Ready() {
+			t.Error("service should not be ready after closing")
+		}
+	})
+
+	if service.Ready() {
+		t.Fatal("Service should not be ready before connecting")
+	}
 
 	if err := service.Connect(); err != nil {
 		t.Fatal(err)
+	}
+
+	if !service.Ready() {
+		t.Fatal("service should be ready after subscriptions are acknowledged")
 	}
 }
