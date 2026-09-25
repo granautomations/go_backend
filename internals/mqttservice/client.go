@@ -142,7 +142,7 @@ func (s *Service) Connect() error {
 		if err != nil {
 			return fmt.Errorf("subscribe to MQTT topics: %w", err)
 		}
-	case <-time.After(10 * time.Second):
+	case <-time.After(15 * time.Second):
 		return errors.New("timed out waiting for MQTT subscription")
 	}
 
@@ -150,12 +150,11 @@ func (s *Service) Connect() error {
 	return nil
 }
 
-// onConnect subscribes to the configured filters after an initial connection
-// or automatic reconnection.
+// onConnect subscribes to the configured filters with up to two subscription attempts on initial connection or reconnection.
 func (s *Service) onConnect(client mqtt.Client) {
 	s.subscribed.Store(false)
 
-	if err := s.subscribeOnce(client); err != nil {
+	if err := s.subscribeWithRetry(client); err != nil {
 		s.logger.Error("mqtt subscription failed", "error", err)
 		s.reportInitialSubscription(err)
 		return
@@ -232,4 +231,20 @@ func (s *Service) subscribeOnce(client subscriptionClient) error {
 		}
 	}
 	return nil
+}
+
+// subscribeWithRetry makes at most two subscription attempts and returns
+// the last error if neither attempt succeeds.
+func (s *Service) subscribeWithRetry(client subscriptionClient) error {
+	const maxAttempts = 2
+
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		lastErr = s.subscribeOnce(client)
+		if lastErr == nil {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("subscribe after %d attempts: %w", maxAttempts, lastErr)
 }

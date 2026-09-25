@@ -154,3 +154,88 @@ func TestSubscribeOnceRejectsLowerQoS(t *testing.T) {
 			filter, qos, found)
 	}
 }
+
+// fakeSequenceSubscriptionClient returns one token per subscription attempt.
+type fakeSequenceSubscriptionClient struct {
+	tokens []mqtt.Token
+	calls  int
+}
+
+func (f *fakeSequenceSubscriptionClient) SubscribeMultiple(
+	_ map[string]byte,
+	_ mqtt.MessageHandler,
+) mqtt.Token {
+	if f.calls >= len(f.tokens) {
+		panic("unexpected extra subscription attempt")
+	}
+	token := f.tokens[f.calls]
+	f.calls++
+	return token
+}
+
+var _ subscriptionClient = (*fakeSequenceSubscriptionClient)(nil)
+
+// TestSubscribeWithRetryRecovers verifies that a second attempt succeeds
+// after the first subscription attempt fails.
+func TestSubscribeWithRetryRecovers(t *testing.T) {
+
+	const filter = "home/+/+/+"
+
+	service := &Service{
+		cfg: Config{TopicFilters: []string{filter}},
+	}
+	client := &fakeSequenceSubscriptionClient{
+		tokens: []mqtt.Token{
+			&fakeSubscribeToken{
+				completed: true,
+				err:       errors.New("temporary failure"),
+			},
+			&fakeSubscribeToken{
+				completed: true,
+				granted:   map[string]byte{filter: 1},
+			},
+		},
+	}
+
+	if err := service.subscribeWithRetry(client); err != nil {
+		t.Fatalf("expected retry to recover, got: %v", err)
+	}
+	if client.calls != 2 {
+		t.Fatalf("subscription attempts = %d, want 2", client.calls)
+	}
+
+}
+
+// TestSubscribeWithRetryExhausted verifies that retries stop after two
+// failures and return the final underlying error.
+func TestSubscribeWithRetryExhausted(t *testing.T) {
+	const filter = "home/+/+/+"
+	secondErr := errors.New("second subscription failure")
+
+	service := &Service{
+		cfg: Config{TopicFilters: []string{filter}},
+	}
+	client := &fakeSequenceSubscriptionClient{
+		tokens: []mqtt.Token{
+			&fakeSubscribeToken{
+				completed: true,
+				err:       errors.New("first subscription failure"),
+			},
+			&fakeSubscribeToken{
+				completed: true,
+				err:       secondErr,
+			},
+		},
+	}
+
+	err := service.subscribeWithRetry(client)
+	if err == nil {
+		t.Fatal("expected an error after both attempts failed")
+	}
+	if client.calls != 2 {
+		t.Fatalf("subscription attempts = %d, want 2", client.calls)
+	}
+	if !errors.Is(err, secondErr) {
+		t.Fatalf("error = %v, want it to wrap %v", err, secondErr)
+	}
+}

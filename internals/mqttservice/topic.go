@@ -26,3 +26,19 @@ func parseTopic(raw string) (topicParts, error) {
 		Metric:    levels[3],
 	}, nil
 }
+
+func buildTopic(reading Telemetry) (string, error) {
+	levels := []string{
+		reading.Namespace,
+		reading.Location,
+		reading.DeviceID,
+		reading.Metric,
+	}
+	for _, level := range levels {
+		if level == "" || strings.ContainsAny(level, "/+#") {
+			return "", errors.New("invalid publish topic level")
+		}
+	}
+
+	return strings.Join(levels, "/"), nil
+}

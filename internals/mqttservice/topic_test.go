@@ -41,3 +41,20 @@ func TestParseTopic(t *testing.T) {
 	}
 
 }
+
+func TestBuildTopic(t *testing.T) {
+	reading := Telemetry{
+		Namespace: "home",
+		Location:  "indoor",
+		DeviceID:  "esp32-1",
+		Metric:    "temperature",
+	}
+	got, err := buildTopic(reading)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if want := "home/indoor/esp32-1/temperature"; got != want {
+		t.Fatalf("topic = %q, want %q", got, want)
+	}
+}
