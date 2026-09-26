@@ -6,7 +6,71 @@ Build an internal Go MQTT service that connects directly to a local Mosquitto br
 
 The existing HTTP server in `cmd/server/main.go` remains the application entry point. Start and stop the MQTT service alongside it, using the shutdown context already present there. Keep MQTT code outside `internals/httpapi`: the current `readingStore` is in-memory HTTP data, not a persistence boundary for device telemetry.
 
-### Message contract
+## Progress and resume point
+
+Last reviewed: **2026-09-26**. We are beginning **step 4**, with parts of step 6 already implemented. Checkboxes track specific work, not completion of the entire milestone.
+
+**Next small learning step:** add table-driven tests for `buildTopic` that reject empty levels and levels containing `/`, `+`, or `#`. Then implement telemetry encoding and the internal publishing method.
+
+### 1. Local broker
+
+- [x] A local Mosquitto broker was used successfully by the Go integration tests.
+- [ ] Document broker startup and how the ESP32 locates it.
+- [ ] Record command-line verification of both sample metrics at QoS 1.
+
+### 2. Telemetry model and validation
+
+- [x] Parse four nonempty topic levels without hard-coding namespace or location.
+- [x] Decode value and Unix-seconds timestamp, reject missing fields, and derive units from the metric registry.
+- [x] Unit tests cover temperature, unsupported metrics, malformed JSON, a missing timestamp, and some invalid topics.
+- [ ] Define acceptable timestamp behavior and implement its validation.
+- [ ] Expand table-driven tests for humidity, missing/null fields, malformed levels, invalid timestamps, and numeric limits.
+- [ ] Document the telemetry types and parsing helpers.
+
+### 3. Connection, subscription, and logging
+
+- [x] Configure Paho, register handlers before connecting, and verify QoS 1 subscription acknowledgments.
+- [x] Track readiness, clear it on disconnect, and log received/rejected telemetry.
+- [x] Implement and unit-test up to two immediate subscription attempts.
+- [ ] Choose and test recovery behavior after both subscription attempts fail.
+- [ ] Add reconnect-attempt logging and internal message/failure counters.
+- [ ] Introduce a message-processing boundary before integrating PostgreSQL.
+
+### 4. Internal publisher
+
+- [x] Implement `buildTopic` and its valid-topic test.
+- [ ] Test invalid publish-topic levels and document the helper.
+- [ ] Validate and JSON-encode outgoing telemetry.
+- [ ] Implement `PublishTelemetry` with QoS 1, no retention, and bounded cancellation-aware waiting.
+- [ ] Test success, invalid input, publish failures, timeout, and cancellation.
+
+### 5. Server lifecycle
+
+- [ ] Introduce centralized, typed YAML configuration with startup validation and a documented example file.
+- [ ] Move HTTP/MQTT runtime settings out of hard-coded application values and inject them into services.
+- [ ] Configure and construct MQTT in `cmd/server/main.go`.
+- [ ] Bound startup failure and coordinate MQTT shutdown with the HTTP server.
+- [ ] Verify real disconnect/reconnect and shutdown behavior.
+
+### 6. End-to-end acceptance
+
+- [x] Add opt-in broker tests with isolated client IDs and a unique telemetry topic.
+- [x] Verify temperature delivery through Mosquitto and assert logged device ID, metric, value, unit, and timestamp.
+- [ ] Replace the test's direct Paho publish with the internal publishing method.
+- [ ] Verify humidity, namespace/location fields, and the invalid-payload rejection path.
+- [ ] Verify publication through a separate subscriber and recovery after a real broker restart.
+
+### Verification evidence
+
+- `go test ./... -count=1` passed on 2026-09-26. Broker tests were skipped because `MQTT_TEST_BROKER` was not supplied.
+- `TestServiceReceivesTelemetry` passed against `tcp://127.0.0.1:1883` on 2026-09-25. It currently publishes directly through Paho at QoS 0 and verifies the received structured telemetry log; it does not yet exercise an internal publishing method.
+
+### Decisions still needed
+
+- Timestamp policy: define acceptable dates and clock skew; decoding an `int64` alone does not establish that a timestamp is valid.
+- Subscription recovery: two immediate attempts are bounded retry, not ongoing recovery. If both fail while the connection remains open, readiness stays false and no further attempt is scheduled. Choose a deliberate policy before claiming sustained recovery.
+
+## Message contract
 
 | Kind | Topic | Example payload |
 | --- | --- | --- |
@@ -21,9 +85,29 @@ Choose [`github.com/eclipse/paho.mqtt.golang`](https://github.com/eclipse/paho.m
 
 A stable client ID identifies the backend to the broker; it does not by itself make a session persistent. Use a configured, stable ID such as `automation-backend-dev`, set `CleanSession(false)`, and subscribe at QoS 1. Give each test process its own client ID so it cannot disconnect the running backend. Mosquitto's broker persistence must also be enabled if queued session messages must survive a broker restart. QoS 1 means *at least once*: duplicates are possible, and a successful publish acknowledgment means the broker accepted the message, not that a future PostgreSQL write succeeded.
 
+The ESP32 currently publishes telemetry at QoS 0. A QoS 1 subscription does not upgrade QoS 0 publications. The internal Go publishing method will use QoS 1; any firmware change needed to increase device delivery guarantees must be explained and requested before relying on it.
+
 ## Step-by-step implementation
 
 After each step, run the focused test or manual check, explain the result, and only then move on. Write the code yourself; review each step before adding the next concept.
+
+Write unit and integration tests throughout implementation. Step 6 is final acceptance coverage, not the first introduction of broker tests. Keep the progress checklist, verification evidence, unresolved decisions, and resume point current after meaningful changes.
+
+Record meaningful completed changes in the repository-root `changelog.md`. Ask focused questions about intent and implementation tradeoffs when starting a new task, using prior answers and distinguishing non-blocking preferences from decisions needed before implementation.
+
+Include documentation comments for types and functions and inline comments for non-obvious logic in each learning step. Explain configuration fields and behavior, particularly cancellation, concurrency, and failure handling. Add missing comments as existing code is reviewed.
+
+### Centralized configuration approach
+
+Implement this progressively as part of step 5, before wiring MQTT into the server. Configuration is not implemented yet; current HTTP and MQTT timeouts and retry limits still contain hard-coded runtime values.
+
+- Use a documented `config.example.yaml` for non-secret settings and a typed configuration package such as `internals/config`. Select a small YAML decoder when this implementation step begins; a general-purpose configuration framework is not required.
+- Load configuration once in `main`, reject unknown keys and invalid/missing required settings, and pass typed settings into HTTP and MQTT components. Do not read files or environment variables independently inside each service.
+- Centralize HTTP listen address and read/write/idle/shutdown timeouts, MQTT broker URL and client ID, topic filters, metric-unit definitions, connection/subscription/publish timeouts, subscription retry policy, and logging settings. Document duration syntax, required fields, and any defaults in the example file.
+- Keep passwords and future database credentials out of version control. Use explicitly documented environment-based secret overrides and never log secrets. Document precedence so configuration behavior is predictable.
+- Keep protocol invariants, such as the four-level topic shape, distinct from deployment settings. Fixed sample values in isolated tests are fixtures, not server configuration.
+- Test loading, unknown fields, missing required settings, invalid durations/ranges, and override behavior. Continue passing explicit test configuration into services rather than requiring a developer's configuration file.
+- Learn: YAML decoding, typed configuration structs, validation, dependency injection, and separation of configuration from behavior.
 
 ### 1. Establish a local broker and inspect the wire contract
 
@@ -47,6 +131,7 @@ After each step, run the focused test or manual check, explain the result, and o
 - Add a service with configuration for broker URL and client ID. Accept a `*slog.Logger` and a small message-processing function or interface so logging can later be replaced by PostgreSQL persistence.
 - Configure TCP, a stable client ID, `CleanSession(false)`, QoS 1, automatic reconnect, a finite connection timeout, and connection callbacks. Register the message handler before connecting so resumed-session deliveries have a handler.
 - On each connection, confirm the configured topic subscriptions are active; log subscription errors. In the message handler, parse and log the reading. Keep this callback short so it does not stall network handling.
+- Track bounded subscription retry separately from automatic connection recovery. Decide what happens if retries are exhausted while the broker connection remains open; logging and false readiness alone do not schedule recovery.
 - Log connection, disconnect, reconnect attempt, subscription failure, parse failure, and received-message events with structured fields. Keep internal counters for connected state, received messages, invalid messages, and publish failures; an HTTP metrics route is not required yet.
 - Learn: constructors and interfaces express dependencies; callbacks are functions the library invokes on events; `slog` adds searchable key/value fields; callbacks may run concurrently, so shared counters need synchronization or atomics.
 
@@ -54,7 +139,7 @@ After each step, run the focused test or manual check, explain the result, and o
 
 ### 4. Add the internal publisher
 
-- Add a service method such as `PublishTelemetry(ctx context.Context, reading Telemetry) error`. Validate the reading, construct its exact topic from device ID and metric, JSON-encode the payload, and publish at QoS 1 without the retained flag.
+- Add a service method such as `PublishTelemetry(ctx context.Context, reading Telemetry) error`. Validate the reading, construct its exact topic from namespace, location, device ID, and metric, JSON-encode the payload, and publish at QoS 1 without the retained flag.
 - Wait for the publish result with a bounded context or timeout and return a useful error on failure. Do not silently turn a timeout into success.
 - Exercise this method from a small local demo command or the integration test. The method is the application API for publishing; no HTTP handler calls it in this milestone.
 - Learn: methods attach behavior to a type; `context.Context` carries cancellation and deadlines; JSON encoding turns a Go value into bytes; an MQTT publish acknowledgment has a narrower meaning than end-to-end processing.
@@ -63,6 +148,7 @@ After each step, run the focused test or manual check, explain the result, and o
 
 ### 5. Wire lifecycle into the server
 
+- Implement and test the centralized configuration approach above, then replace hard-coded runtime settings in HTTP and MQTT code. Document how to select the configuration file and supply secrets.
 - Construct the MQTT service in `cmd/server/main.go`, start it with the app, and stop it during the existing signal-driven shutdown. Define startup behavior explicitly: fail startup with a clear error if the initial broker connection cannot be established within a short timeout; use automatic reconnect after a connection that was established successfully.
 - Ensure the MQTT client stops accepting new work and disconnects before process exit. Keep the HTTP and MQTT shutdown paths understandable and bounded.
 - Learn: `main` composes services; contexts signal cancellation; a goroutine can run independent work; graceful shutdown gives in-flight work a bounded chance to finish.
