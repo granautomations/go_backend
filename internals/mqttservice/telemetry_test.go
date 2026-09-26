@@ -74,4 +74,5 @@ func TestParseTelemetry(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error for an unsupported metric")
 	}
+
 }

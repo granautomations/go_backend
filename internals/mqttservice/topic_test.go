@@ -42,7 +42,9 @@ func TestParseTopic(t *testing.T) {
 
 }
 
+// TestBuildTopic checks valid topic construction and rejection of invalid levels.
 func TestBuildTopic(t *testing.T) {
+
 	reading := Telemetry{
 		Namespace: "home",
 		Location:  "indoor",
@@ -54,7 +56,75 @@ func TestBuildTopic(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if want := "home/indoor/esp32-1/temperature"; got != want {
-		t.Fatalf("topic = %q, want %q", got, want)
+	if expected := "home/indoor/esp32-1/temperature"; got != expected {
+		t.Fatalf("topic = %q, want %q", got, expected)
 	}
+
+	tests := []struct {
+		name    string
+		reading Telemetry
+	}{
+		{name: "empty namespace",
+			reading: Telemetry{
+				Namespace: "",
+				Location:  "indoor",
+				DeviceID:  "esp32-1",
+				Metric:    "temperature",
+			}},
+		{name: "empty location",
+			reading: Telemetry{
+				Namespace: "home",
+				Location:  "",
+				DeviceID:  "esp32-1",
+				Metric:    "temperature",
+			}},
+		{name: "empty DeviceID",
+			reading: Telemetry{
+				Namespace: "home",
+				Location:  "indoor",
+				DeviceID:  "",
+				Metric:    "temperature",
+			}},
+		{name: "empty Metric",
+			reading: Telemetry{
+				Namespace: "home",
+				Location:  "indoor",
+				DeviceID:  "esp32-1",
+				Metric:    "",
+			}},
+		{name: "embedded separator",
+			reading: Telemetry{
+				Namespace: "home",
+				Location:  "indoor",
+				DeviceID:  "esp32/1",
+				Metric:    "temperature",
+			}},
+		{name: "single-level wildcard",
+			reading: Telemetry{
+				Namespace: "home",
+				Location:  "indoor+",
+				DeviceID:  "esp32-1",
+				Metric:    "temperature",
+			}},
+		{name: "multi-level wildcard",
+			reading: Telemetry{
+				Namespace: "home",
+				Location:  "indoor",
+				DeviceID:  "esp32-1",
+				Metric:    "temperature#",
+			}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := buildTopic(tt.reading)
+			if err == nil {
+				t.Fatal("expected an error")
+			}
+			if got != "" {
+				t.Fatalf("topic = %q, want empty topic on error", got)
+			}
+		})
+	}
+
 }
