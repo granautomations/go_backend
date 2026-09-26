@@ -72,3 +72,26 @@ func parseTelemetry(rawTopic string, payload []byte, units map[string]string) (T
 	}, nil
 
 }
+
+// encodeReading returns JSON containing only value and an integer Unix-seconds
+// timestamp, discarding subsecond precision and omitting device metadata and unit.
+// It does not validate metrics or timestamp ranges. JSON encoding failures,
+// including non-finite values, return a nil payload and a wrapped error.
+func encodeReading(reading Telemetry) ([]byte, error) {
+
+	payloadReading := struct {
+		Value     float64 `json:"value"`
+		Timestamp int64   `json:"timestamp"`
+	}{
+		Value:     reading.Value,
+		Timestamp: reading.Timestamp.Unix(),
+	}
+
+	payload, err := json.Marshal(payloadReading)
+	if err != nil {
+		return nil, fmt.Errorf("encode reading: %w", err)
+	}
+
+	return payload, nil
+
+}

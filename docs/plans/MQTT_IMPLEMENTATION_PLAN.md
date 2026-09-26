@@ -10,7 +10,7 @@ The existing HTTP server in `cmd/server/main.go` remains the application entry p
 
 Last reviewed: **2026-09-26**. We are beginning **step 4**, with parts of step 6 already implemented. Checkboxes track specific work, not completion of the entire milestone.
 
-**Next small learning step:** give the '+' and '#' test cases descriptive names (they currently repeat "embedded separator"), then write a valid-payload test for telemetry encoding before implementing the encoder. Preserve the wire contract: only numeric value and Unix-seconds timestamp.
+**Next small learning step:** document `TestEncodeReading` and use `t.Fatal` for its encoding failures. Then add non-finite-value error coverage and decide timestamp validation before implementing the publisher. The encoder is now in application code and documented.
 
 ### 1. Local broker
 
@@ -44,6 +44,7 @@ Last reviewed: **2026-09-26**. We are beginning **step 4**, with parts of step 6
 - [x] Test invalid publish-topic levels.
   - All seven initial invalid cases share error and empty-topic assertions. The wildcard cases still need descriptive names; exhaustive forbidden-character coverage across every field is a possible later expansion.
 - [ ] Validate and JSON-encode outgoing telemetry.
+  - A documented `encodeReading` now exists in `telemetry.go`; its valid-payload test verifies exactly two keys and their numeric values. Semantic validation and error-path coverage remain pending.
 - [ ] Implement `PublishTelemetry` with QoS 1, no retention, and bounded cancellation-aware waiting.
 - [ ] Test success, invalid input, publish failures, timeout, and cancellation.
 
@@ -65,12 +66,14 @@ Last reviewed: **2026-09-26**. We are beginning **step 4**, with parts of step 6
 
 ### Verification evidence
 
+- Latest encoding checkpoint on 2026-09-26: the focused `TestEncodeReading` check and `go test ./... -count=1` passed with the encoder in `telemetry.go`. Broker tests were skipped without `MQTT_TEST_BROKER`. The test still needs its documentation comment and `t.Fatal` on encoding failure before the recommended commit.
 - Latest focused check on 2026-09-26: `go test ./internals/mqttservice -run '^TestBuildTopic' -v -count=1` passed all seven invalid-input subtests and the valid-topic check. All invalid cases now share the same assertions.
 - `go test ./... -count=1` passed on 2026-09-26. Broker tests were skipped because `MQTT_TEST_BROKER` was not supplied.
 - `TestServiceReceivesTelemetry` passed against `tcp://127.0.0.1:1883` on 2026-09-25. It currently publishes directly through Paho at QoS 0 and verifies the received structured telemetry log; it does not yet exercise an internal publishing method.
 
 ### Decisions still needed
 
+- Confirmed precision policy: outgoing timestamps use Unix seconds; subsecond precision is discarded, not rejected.
 - Timestamp policy: define acceptable dates and clock skew; decoding an `int64` alone does not establish that a timestamp is valid.
 - Subscription recovery: two immediate attempts are bounded retry, not ongoing recovery. If both fail while the connection remains open, readiness stays false and no further attempt is scheduled. Choose a deliberate policy before claiming sustained recovery.
 

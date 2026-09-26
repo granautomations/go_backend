@@ -1,6 +1,7 @@
 package mqttservice
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -30,6 +31,61 @@ func TestDecodeReading(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error for malformed JSON")
 	}
+}
+
+// TestEncodeReading verifies the wire payload's exact keys and numeric values.
+func TestEncodeReading(t *testing.T) {
+	reading := Telemetry{
+		Namespace: "home",
+		Location:  "indoor",
+		DeviceID:  "esp32-3",
+		Metric:    "temperature",
+		Value:     24.4,
+		Unit:      "C",
+		Timestamp: time.Unix(1790103261, 0).UTC(),
+	}
+
+	payload, err := encodeReading(reading)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &fields); err != nil {
+		t.Fatalf("decode generated payload: %v", err)
+	}
+
+	if len(fields) != 2 {
+		t.Fatalf("payload had %d fields, expected 2", len(fields))
+	}
+
+	valueJSON, ok := fields["value"]
+	if !ok {
+		t.Fatal("payload is missing value")
+	}
+
+	timestampJSON, ok := fields["timestamp"]
+	if !ok {
+		t.Fatal("payload is missing timestamp")
+	}
+
+	// Decode into the wire types to verify both representation and value.
+	var decodedValue float64
+	if err := json.Unmarshal(valueJSON, &decodedValue); err != nil {
+		t.Fatalf("decode value: %v", err)
+	}
+	if decodedValue != reading.Value {
+		t.Fatalf("value = %g, want %g", decodedValue, reading.Value)
+	}
+
+	var decodedTimestamp int64
+	if err := json.Unmarshal(timestampJSON, &decodedTimestamp); err != nil {
+		t.Fatalf("decode timestamp: %v", err)
+	}
+	if expected := reading.Timestamp.Unix(); decodedTimestamp != expected {
+		t.Fatalf("timestamp = %d, want %d", decodedTimestamp, expected)
+	}
+
 }
 
 func TestParseTelemetry(t *testing.T) {

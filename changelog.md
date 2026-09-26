@@ -17,6 +17,7 @@ This initial baseline records the current MQTT work and project guidance as of 2
 - Opt-in Mosquitto integration tests for connection readiness and temperature delivery, with isolated identifiers, bounded waits, and structured log assertions. The delivery test currently publishes directly through Paho; the internal publishing method is not implemented yet.
 - MQTT implementation plan with progress checklists, verification evidence, unresolved decisions, and a resume point.
 - Repository changelog and instructions for maintaining meaningful change records.
+- Application telemetry encoder and its test produce and verify exactly the value and integer Unix-seconds timestamp fields, omitting internal metadata. The encoder's documentation describes precision and validation limits; error-path coverage remains pending.
 
 #### Changed
 
