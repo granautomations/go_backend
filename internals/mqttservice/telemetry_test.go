@@ -2,6 +2,7 @@ package mqttservice
 
 import (
 	"encoding/json"
+	"math"
 	"testing"
 	"time"
 )
@@ -129,6 +130,43 @@ func TestParseTelemetry(t *testing.T) {
 	_, err = parseTelemetry("home/garage/esp32-1/pressure", payload, units)
 	if err == nil {
 		t.Fatal("expected an error for an unsupported metric")
+	}
+
+}
+
+// TestEncodeReadingRejectsNonFiniteValue verifies encoding fails without a payload.
+func TestEncodeReadingRejectsNonFiniteValue(t *testing.T) {
+	tests := []struct {
+		name    string
+		reading Telemetry
+	}{
+		{name: "not a number",
+			reading: Telemetry{
+				Value:     math.NaN(),
+				Timestamp: time.Unix(1790103261, 0).UTC(),
+			}},
+		{name: "positive infinity",
+			reading: Telemetry{
+				Value:     math.Inf(1),
+				Timestamp: time.Unix(1790103261, 0).UTC(),
+			}},
+		{name: "negative infinity",
+			reading: Telemetry{
+				Value:     math.Inf(-1),
+				Timestamp: time.Unix(1790103261, 0).UTC(),
+			}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			payload, err := encodeReading(tt.reading)
+			if err == nil {
+				t.Fatal("expected an error for a non-finite value")
+			}
+			if payload != nil {
+				t.Fatalf("payload = %q, want nil", payload)
+			}
+		})
 	}
 
 }

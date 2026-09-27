@@ -6,6 +6,12 @@ This initial baseline records the current MQTT work and project guidance as of 2
 
 ## Unreleased
 
+### 2026-09-27
+
+#### Changed
+
+- Refreshed the MQTT plan's resume point and verification evidence, distinguishing completed encoding tests from pending timestamp validation and internal publishing.
+
 ### 2026-09-26
 
 #### Added
@@ -17,7 +23,7 @@ This initial baseline records the current MQTT work and project guidance as of 2
 - Opt-in Mosquitto integration tests for connection readiness and temperature delivery, with isolated identifiers, bounded waits, and structured log assertions. The delivery test currently publishes directly through Paho; the internal publishing method is not implemented yet.
 - MQTT implementation plan with progress checklists, verification evidence, unresolved decisions, and a resume point.
 - Repository changelog and instructions for maintaining meaningful change records.
-- Application telemetry encoder and its test produce and verify exactly the value and integer Unix-seconds timestamp fields, omitting internal metadata. The encoder's documentation describes precision and validation limits; error-path coverage remains pending.
+- Application telemetry encoder and tests produce and verify exactly the value and integer Unix-seconds timestamp fields, omitting internal metadata. Table-driven error tests verify that NaN and both infinities return errors and nil payloads; documentation describes precision and validation limits.
 
 #### Changed
 
@@ -25,4 +31,5 @@ This initial baseline records the current MQTT work and project guidance as of 2
 - Planned server configuration now uses centralized, typed YAML settings with startup validation and external secret overrides. The configuration loader and migration of hard-coded runtime values are not implemented yet.
 - Collaboration guidance now calls for meaningful questions about intent and implementation tradeoffs, with non-blocking questions for clear requests and clarification before consequential assumptions.
 - Changelog entries now include a dated grouping, with an explicit distinction between baseline recording dates and original implementation dates.
+- Changelog policy now limits entries to backend-repository changes; removed firmware-only handoff and review entries.
 - Documented topic parsing/building and telemetry decoding/parsing contracts, validation scope, and error results; runtime behavior is unchanged.

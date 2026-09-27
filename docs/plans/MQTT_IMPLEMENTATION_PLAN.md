@@ -8,9 +8,9 @@ The existing HTTP server in `cmd/server/main.go` remains the application entry p
 
 ## Progress and resume point
 
-Last reviewed: **2026-09-26**. We are beginning **step 4**, with parts of step 6 already implemented. Checkboxes track specific work, not completion of the entire milestone.
+Last reviewed: **2026-09-27**. We are in **step 4**: topic construction and payload encoding are implemented and tested; the internal publishing method is not implemented. Parts of step 6 are already implemented. Checkboxes track specific work, not completion of the entire milestone.
 
-**Next small learning step:** document `TestEncodeReading` and use `t.Fatal` for its encoding failures. Then add non-finite-value error coverage and decide timestamp validation before implementing the publisher. The encoder is now in application code and documented.
+**Next small learning step:** decide whether delayed/historical telemetry is accepted and define invalid/future timestamp behavior. Firmware inspection has already established clock-gated publishing and the reviewed update captures measurement epochs. Write focused backend validation tests before implementation, then continue to `PublishTelemetry`. The non-finite-value test and its documentation are complete.
 
 ### 1. Local broker
 
@@ -44,7 +44,7 @@ Last reviewed: **2026-09-26**. We are beginning **step 4**, with parts of step 6
 - [x] Test invalid publish-topic levels.
   - All seven initial invalid cases share error and empty-topic assertions. The wildcard cases still need descriptive names; exhaustive forbidden-character coverage across every field is a possible later expansion.
 - [ ] Validate and JSON-encode outgoing telemetry.
-  - A documented `encodeReading` now exists in `telemetry.go`; its valid-payload test verifies exactly two keys and their numeric values. Semantic validation and error-path coverage remain pending.
+  - A documented `encodeReading` now exists in `telemetry.go`; tests verify exactly two keys and their numeric values, and reject NaN and both infinities with errors and nil payloads. Timestamp validation remains pending.
 - [ ] Implement `PublishTelemetry` with QoS 1, no retention, and bounded cancellation-aware waiting.
 - [ ] Test success, invalid input, publish failures, timeout, and cancellation.
 
@@ -66,13 +66,16 @@ Last reviewed: **2026-09-26**. We are beginning **step 4**, with parts of step 6
 
 ### Verification evidence
 
-- Latest encoding checkpoint on 2026-09-26: the focused `TestEncodeReading` check and `go test ./... -count=1` passed with the encoder in `telemetry.go`. Broker tests were skipped without `MQTT_TEST_BROKER`. The test still needs its documentation comment and `t.Fatal` on encoding failure before the recommended commit.
+- Commit checkpoint on 2026-09-27: `go test ./... -count=1` and `git diff --check` passed. Broker tests were skipped without `MQTT_TEST_BROKER`. The non-finite-value test now has the required function-name documentation comment.
+- Latest encoding checkpoint on 2026-09-26: `go test ./internals/mqttservice -run '^TestEncodeReading' -v -count=1` passed the valid payload test and all three non-finite-value subtests. The previous full-suite check also passed with the encoder in `telemetry.go`; broker tests were skipped without `MQTT_TEST_BROKER`.
 - Latest focused check on 2026-09-26: `go test ./internals/mqttservice -run '^TestBuildTopic' -v -count=1` passed all seven invalid-input subtests and the valid-topic check. All invalid cases now share the same assertions.
 - `go test ./... -count=1` passed on 2026-09-26. Broker tests were skipped because `MQTT_TEST_BROKER` was not supplied.
 - `TestServiceReceivesTelemetry` passed against `tcp://127.0.0.1:1883` on 2026-09-25. It currently publishes directly through Paho at QoS 0 and verifies the received structured telemetry log; it does not yet exercise an internal publishing method.
 
 ### Decisions still needed
 
+- Firmware inspection on 2026-09-26 found existing telemetry publishers gated by clock validity, contrary to the earlier no-telemetry report. Their timestamps currently describe publication of cached values, not captured measurement epochs. See [ESP32 timestamp handoff](ESP32_TELEMETRY_TIMESTAMP_HANDOFF.md); no firmware changes or tests were performed during this inspection.
+- Subsequent implementation review on 2026-09-26 confirmed captured measurement timestamps and application snapshot wiring in the updated firmware. ESP32 build and 32 native tests passed (native tests required per-command Xcode SDK selection). Device verification is still pending; the handoff records remaining coverage and timestamp-width/documentation limitations. No firmware implementation was changed by the reviewing agent.
 - Confirmed precision policy: outgoing timestamps use Unix seconds; subsecond precision is discarded, not rejected.
 - Timestamp policy: define acceptable dates and clock skew; decoding an `int64` alone does not establish that a timestamp is valid.
 - Subscription recovery: two immediate attempts are bounded retry, not ongoing recovery. If both fail while the connection remains open, readiness stays false and no further attempt is scheduled. Choose a deliberate policy before claiming sustained recovery.
