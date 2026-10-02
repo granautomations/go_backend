@@ -10,7 +10,7 @@ The existing HTTP server in `cmd/server/main.go` remains the application entry p
 
 Last reviewed: **2026-09-27**. We are in **step 4**: topic construction and payload encoding are implemented and tested; the internal publishing method is not implemented. Parts of step 6 are already implemented. Checkboxes track specific work, not completion of the entire milestone.
 
-**Next small learning step:** decide whether delayed/historical telemetry is accepted and define invalid/future timestamp behavior. Firmware inspection has already established clock-gated publishing and the reviewed update captures measurement epochs. Write focused backend validation tests before implementation, then continue to `PublishTelemetry`. The non-finite-value test and its documentation are complete.
+**Next small learning step:** write table-driven tests for `validateTimestamp(timestamp, now, minimum time.Time, maxFutureSkew time.Duration) error`. Accept timestamps from 2020-01-01T00:00:00Z through now plus five minutes, inclusive; preserve valid historical readings. Pass all policy inputs explicitly, with runtime values supplied by centralized configuration later. Then implement the helper and wire validation into incoming/outgoing telemetry before continuing to `PublishTelemetry`.
 
 ### 1. Local broker
 
@@ -77,7 +77,9 @@ Last reviewed: **2026-09-27**. We are in **step 4**: topic construction and payl
 - Firmware inspection on 2026-09-26 found existing telemetry publishers gated by clock validity, contrary to the earlier no-telemetry report. Their timestamps currently describe publication of cached values, not captured measurement epochs. See [ESP32 timestamp handoff](ESP32_TELEMETRY_TIMESTAMP_HANDOFF.md); no firmware changes or tests were performed during this inspection.
 - Subsequent implementation review on 2026-09-26 confirmed captured measurement timestamps and application snapshot wiring in the updated firmware. ESP32 build and 32 native tests passed (native tests required per-command Xcode SDK selection). Device verification is still pending; the handoff records remaining coverage and timestamp-width/documentation limitations. No firmware implementation was changed by the reviewing agent.
 - Confirmed precision policy: outgoing timestamps use Unix seconds; subsecond precision is discarded, not rejected.
-- Timestamp policy: define acceptable dates and clock skew; decoding an `int64` alone does not establish that a timestamp is valid.
+- Confirmed history policy (2026-09-27): accept valid delayed/historical readings and preserve their measurement timestamps. Do not reject solely because a reading is old. Freshness checks for future automations are separate from ingestion validity; this does not imply the firmware buffers offline readings.
+- Confirmed future-skew policy (2026-09-27): initial configurable tolerance is five minutes. Accept the exact boundary and reject later timestamps from normal processing with a useful error/log; preserve the original measurement time. Supply reference time explicitly in tests and configuration through service dependencies. Backend clock accuracy is an operational prerequisite.
+- Confirmed minimum-date policy (2026-09-27): device telemetry accepts 2020-01-01T00:00:00Z and later. The lower boundary is inclusive; the firmware's current plausibility check is slightly stricter (`>` rather than `>=`). No maximum-age ingestion rule should be introduced within the supported date range. Policy implementation and tests remain pending.
 - Subscription recovery: two immediate attempts are bounded retry, not ongoing recovery. If both fail while the connection remains open, readiness stays false and no further attempt is scheduled. Choose a deliberate policy before claiming sustained recovery.
 
 ## Message contract

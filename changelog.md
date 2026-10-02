@@ -11,6 +11,9 @@ This initial baseline records the current MQTT work and project guidance as of 2
 #### Changed
 
 - Refreshed the MQTT plan's resume point and verification evidence, distinguishing completed encoding tests from pending timestamp validation and internal publishing.
+- Defined the backend ingestion policy to accept valid delayed/historical telemetry, preserve measurement time, and keep freshness separate from validity. Timestamp validation implementation remains pending.
+- Defined a configurable five-minute future-timestamp tolerance with an inclusive boundary; validation implementation and configuration wiring remain pending.
+- Defined 2020-01-01T00:00:00Z as the inclusive minimum date for device telemetry; validation implementation remains pending.
 
 ### 2026-09-26
 
