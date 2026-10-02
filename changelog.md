@@ -6,6 +6,12 @@ This initial baseline records the current MQTT work and project guidance as of 2
 
 ## Unreleased
 
+### 2026-10-02
+
+#### Changed
+
+- Refreshed the MQTT plan against the current backend code and test results, clarifying the remaining timestamp, publishing, configuration, and server-lifecycle work.
+
 ### 2026-09-27
 
 #### Changed

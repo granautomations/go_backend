@@ -8,7 +8,7 @@ The existing HTTP server in `cmd/server/main.go` remains the application entry p
 
 ## Progress and resume point
 
-Last reviewed: **2026-09-27**. We are in **step 4**: topic construction and payload encoding are implemented and tested; the internal publishing method is not implemented. Parts of step 6 are already implemented. Checkboxes track specific work, not completion of the entire milestone.
+Last reviewed: **2026-10-02** against the backend code. We are in **step 4**: topic construction and payload encoding are implemented and tested; timestamp validation and the internal publishing method are not implemented. Parts of step 6 are already implemented. Checkboxes track specific work, not completion of the entire milestone.
 
 **Next small learning step:** write table-driven tests for `validateTimestamp(timestamp, now, minimum time.Time, maxFutureSkew time.Duration) error`. Accept timestamps from 2020-01-01T00:00:00Z through now plus five minutes, inclusive; preserve valid historical readings. Pass all policy inputs explicitly, with runtime values supplied by centralized configuration later. Then implement the helper and wire validation into incoming/outgoing telemetry before continuing to `PublishTelemetry`.
 
@@ -66,13 +66,14 @@ Last reviewed: **2026-09-27**. We are in **step 4**: topic construction and payl
 
 ### Verification evidence
 
+- Review on 2026-10-02: `go test ./... -count=1` passed. Broker-backed tests were skipped because `MQTT_TEST_BROKER` was not set. No `validateTimestamp`, `PublishTelemetry`, or centralized configuration package exists yet; `cmd/server/main.go` still starts only HTTP.
 - Commit checkpoint on 2026-09-27: `go test ./... -count=1` and `git diff --check` passed. Broker tests were skipped without `MQTT_TEST_BROKER`. The non-finite-value test now has the required function-name documentation comment.
 - Latest encoding checkpoint on 2026-09-26: `go test ./internals/mqttservice -run '^TestEncodeReading' -v -count=1` passed the valid payload test and all three non-finite-value subtests. The previous full-suite check also passed with the encoder in `telemetry.go`; broker tests were skipped without `MQTT_TEST_BROKER`.
 - Latest focused check on 2026-09-26: `go test ./internals/mqttservice -run '^TestBuildTopic' -v -count=1` passed all seven invalid-input subtests and the valid-topic check. All invalid cases now share the same assertions.
 - `go test ./... -count=1` passed on 2026-09-26. Broker tests were skipped because `MQTT_TEST_BROKER` was not supplied.
 - `TestServiceReceivesTelemetry` passed against `tcp://127.0.0.1:1883` on 2026-09-25. It currently publishes directly through Paho at QoS 0 and verifies the received structured telemetry log; it does not yet exercise an internal publishing method.
 
-### Decisions still needed
+### Decisions and dependencies
 
 - Firmware inspection on 2026-09-26 found existing telemetry publishers gated by clock validity, contrary to the earlier no-telemetry report. Their timestamps currently describe publication of cached values, not captured measurement epochs. See [ESP32 timestamp handoff](ESP32_TELEMETRY_TIMESTAMP_HANDOFF.md); no firmware changes or tests were performed during this inspection.
 - Subsequent implementation review on 2026-09-26 confirmed captured measurement timestamps and application snapshot wiring in the updated firmware. ESP32 build and 32 native tests passed (native tests required per-command Xcode SDK selection). Device verification is still pending; the handoff records remaining coverage and timestamp-width/documentation limitations. No firmware implementation was changed by the reviewing agent.
