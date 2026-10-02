@@ -8,9 +8,14 @@ This initial baseline records the current MQTT work and project guidance as of 2
 
 ### 2026-10-02
 
+#### Added
+
+- Added a timestamp-validation helper with deterministic tests for the inclusive 2020 minimum, historical readings, the future-skew boundary, and zero/negative skew. The helper is not yet wired into telemetry processing.
+
 #### Changed
 
 - Refreshed the MQTT plan against the current backend code and test results, clarifying the remaining timestamp, publishing, configuration, and server-lifecycle work.
+- Documented telemetry test functions and the timestamp-validation branches. Clarified that zero future skew is valid and negative skew is rejected; centralized configuration wiring is still pending.
 
 ### 2026-09-27
 

@@ -7,6 +7,7 @@ import (
 	"time"
 )
 
+// TestDecodeReading verifies required JSON fields and malformed-payload errors.
 func TestDecodeReading(t *testing.T) {
 
 	payload := []byte(`{"value":23, "timestamp":1790103261}`)
@@ -89,6 +90,7 @@ func TestEncodeReading(t *testing.T) {
 
 }
 
+// TestParseTelemetry verifies topic context, unit lookup, and UTC timestamp conversion.
 func TestParseTelemetry(t *testing.T) {
 	rawTopic := "home/indoor/esp32-1/temperature"
 	payload := []byte(`{"value":23, "timestamp":1790103261}`)
@@ -169,4 +171,79 @@ func TestEncodeReadingRejectsNonFiniteValue(t *testing.T) {
 		})
 	}
 
+}
+
+// TestValidateTimestamp checks inclusive date and future-skew boundaries.
+func TestValidateTimestamp(t *testing.T) {
+	now := time.Date(2026, time.September, 27, 12, 0, 0, 0, time.UTC)
+	minimum := time.Date(2020, time.January, 1, 0, 0, 0, 0, time.UTC)
+	maxFutureSkew := 5 * time.Minute
+
+	tests := []struct {
+		name      string
+		timestamp time.Time
+		wantErr   bool
+	}{
+		{
+
+			name:      "before minimum",
+			timestamp: minimum.Add(-time.Second),
+			wantErr:   true,
+		},
+		{
+
+			name:      "exact minimum",
+			timestamp: minimum,
+			wantErr:   false,
+		},
+		{
+
+			name:      "historical reading",
+			timestamp: now.Add(-24 * time.Hour),
+			wantErr:   false,
+		},
+		{
+
+			name:      "current reading",
+			timestamp: now,
+			wantErr:   false,
+		},
+		{
+
+			name:      "exact future boundary",
+			timestamp: now.Add(maxFutureSkew),
+			wantErr:   false,
+		},
+		{
+
+			name:      "beyond future boundary",
+			timestamp: now.Add(maxFutureSkew + time.Second),
+			wantErr:   true,
+		},
+		{
+
+			name:      "zero time",
+			timestamp: time.Time{},
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateTimestamp(tt.timestamp, now, minimum, maxFutureSkew)
+			if gotErr := err != nil; gotErr != tt.wantErr {
+				t.Fatalf("validateTimestamp(%v) error = %v, want error = %t",
+					tt.timestamp, err, tt.wantErr)
+			}
+		})
+	}
+
+	if err := validateTimestamp(now, now, minimum, 0); err != nil {
+		t.Fatalf("zero future skew should be valid: %v", err)
+	}
+	if err := validateTimestamp(
+		now.Add(-time.Minute), now, minimum, -time.Second,
+	); err == nil {
+		t.Fatal("negative future skew should be rejected")
+	}
 }

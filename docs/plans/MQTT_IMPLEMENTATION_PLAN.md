@@ -10,7 +10,7 @@ The existing HTTP server in `cmd/server/main.go` remains the application entry p
 
 Last reviewed: **2026-10-02** against the backend code. We are in **step 4**: topic construction and payload encoding are implemented and tested; timestamp validation and the internal publishing method are not implemented. Parts of step 6 are already implemented. Checkboxes track specific work, not completion of the entire milestone.
 
-**Next small learning step:** write table-driven tests for `validateTimestamp(timestamp, now, minimum time.Time, maxFutureSkew time.Duration) error`. Accept timestamps from 2020-01-01T00:00:00Z through now plus five minutes, inclusive; preserve valid historical readings. Pass all policy inputs explicitly, with runtime values supplied by centralized configuration later. Then implement the helper and wire validation into incoming/outgoing telemetry before continuing to `PublishTelemetry`.
+**Next small learning step:** strengthen timestamp error-message assertions, then wire the tested `validateTimestamp` helper into incoming/outgoing telemetry with injected clock and policy values. The helper now rejects negative skew and accepts zero skew; `PublishTelemetry` remains the next feature after validation is integrated.
 
 ### 1. Local broker
 
@@ -24,6 +24,7 @@ Last reviewed: **2026-10-02** against the backend code. We are in **step 4**: to
 - [x] Decode value and Unix-seconds timestamp, reject missing fields, and derive units from the metric registry.
 - [x] Unit tests cover temperature, unsupported metrics, malformed JSON, a missing timestamp, and some invalid topics.
 - [ ] Define acceptable timestamp behavior and implement its validation.
+  - Inclusive lower/upper-bound policy, zero-skew acceptance, and negative-skew rejection are implemented in a standalone helper and covered by tests, but the helper is not yet called by incoming or outgoing telemetry processing.
 - [ ] Expand table-driven tests for humidity, missing/null fields, malformed levels, invalid timestamps, and numeric limits.
 - [ ] Document the telemetry types and parsing helpers.
   - `parseTopic`, `decodeReading`, and `parseTelemetry` now document their contracts and validation scope; the telemetry types still need comments.
@@ -66,6 +67,12 @@ Last reviewed: **2026-10-02** against the backend code. We are in **step 4**: to
 
 ### Verification evidence
 
+- On 2026-10-02, `go test ./... -count=1` passed after explicit negative-skew validation and concise branch comments were added. Broker-backed tests were skipped without `MQTT_TEST_BROKER`.
+- On 2026-10-02, the corrected negative-skew test used `now.Add(-time.Minute)` and failed as intended (`negative future skew should be rejected`). Other timestamp boundary subtests passed; the explicit policy guard is not yet implemented.
+- On 2026-10-02, the focused timestamp test passed after zero/negative-skew cases were added, but the negative case is a false positive: `timestamp == now` exceeds `now.Add(-time.Second)` even without configuration validation. The helper still lacks an explicit negative-skew guard.
+- On 2026-10-02, `go test ./... -count=1` and `git diff --check` passed with `validateTimestamp` moved to production `telemetry.go`. The helper formats actual and allowed UTC times in boundary errors. No broker tests ran in this check.
+- On 2026-10-02, `go test ./internals/mqttservice -run '^TestValidateTimestamp$' -v -count=1` passed all seven boundary subtests using a test-only draft helper. This does not verify production integration or useful error text; the helper still lives in `_test.go` and returns placeholder errors.
+- On 2026-10-02, the first focused `TestValidateTimestamp` run failed to compile with `undefined: validateTimestamp`, as expected for the test-first stage. The test's current `err != tt.wantErr` comparison also needs correction before implementation.
 - Review on 2026-10-02: `go test ./... -count=1` passed. Broker-backed tests were skipped because `MQTT_TEST_BROKER` was not set. No `validateTimestamp`, `PublishTelemetry`, or centralized configuration package exists yet; `cmd/server/main.go` still starts only HTTP.
 - Commit checkpoint on 2026-09-27: `go test ./... -count=1` and `git diff --check` passed. Broker tests were skipped without `MQTT_TEST_BROKER`. The non-finite-value test now has the required function-name documentation comment.
 - Latest encoding checkpoint on 2026-09-26: `go test ./internals/mqttservice -run '^TestEncodeReading' -v -count=1` passed the valid payload test and all three non-finite-value subtests. The previous full-suite check also passed with the encoder in `telemetry.go`; broker tests were skipped without `MQTT_TEST_BROKER`.
@@ -80,6 +87,7 @@ Last reviewed: **2026-10-02** against the backend code. We are in **step 4**: to
 - Confirmed precision policy: outgoing timestamps use Unix seconds; subsecond precision is discarded, not rejected.
 - Confirmed history policy (2026-09-27): accept valid delayed/historical readings and preserve their measurement timestamps. Do not reject solely because a reading is old. Freshness checks for future automations are separate from ingestion validity; this does not imply the firmware buffers offline readings.
 - Confirmed future-skew policy (2026-09-27): initial configurable tolerance is five minutes. Accept the exact boundary and reject later timestamps from normal processing with a useful error/log; preserve the original measurement time. Supply reference time explicitly in tests and configuration through service dependencies. Backend clock accuracy is an operational prerequisite.
+- Confirmed configuration boundary (2026-10-02): zero future skew is a valid strict policy; negative future skew is invalid. The standalone helper and tests enforce this; centralized configuration validation and telemetry-path wiring remain pending.
 - Confirmed minimum-date policy (2026-09-27): device telemetry accepts 2020-01-01T00:00:00Z and later. The lower boundary is inclusive; the firmware's current plausibility check is slightly stricter (`>` rather than `>=`). No maximum-age ingestion rule should be introduced within the supported date range. Policy implementation and tests remain pending.
 - Subscription recovery: two immediate attempts are bounded retry, not ongoing recovery. If both fail while the connection remains open, readiness stays false and no further attempt is scheduled. Choose a deliberate policy before claiming sustained recovery.
 

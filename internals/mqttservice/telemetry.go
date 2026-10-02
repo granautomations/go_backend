@@ -22,6 +22,31 @@ type Telemetry struct {
 	Timestamp time.Time
 }
 
+// validateTimestamp accepts measurement times from minimum through
+// now plus maxFutureSkew, inclusive, and rejects times outside that range.
+// A negative maxFutureSkew is invalid; historical readings within the range remain valid.
+func validateTimestamp(timestamp, now, minimum time.Time, maxFutureSkew time.Duration) error {
+
+	// Reject invalid policy before evaluating an otherwise valid reading.
+	if maxFutureSkew < 0 {
+		return fmt.Errorf("maximum future skew must not be negative: %v", maxFutureSkew)
+	}
+	// Reject implausibly early device times without limiting legitimate old readings.
+	if timestamp.Before(minimum) {
+		return fmt.Errorf("timestamp %s is before minimum %s",
+			timestamp.UTC().Format(time.RFC3339),
+			minimum.UTC().Format(time.RFC3339))
+	}
+	// Allow small clock differences, but reject readings beyond the future limit.
+	latestAllowed := now.Add(maxFutureSkew)
+	if timestamp.After(latestAllowed) {
+		return fmt.Errorf("timestamp %s exceeds latest allowed %s",
+			timestamp.UTC().Format(time.RFC3339),
+			latestAllowed.UTC().Format(time.RFC3339))
+	}
+	return nil
+}
+
 // decodeReading decodes a JSON payload with a numeric value and an integer
 // Unix-seconds timestamp. Both fields must be present and non-null.
 // It does not enforce measurement or timestamp ranges. Invalid input returns
