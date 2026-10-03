@@ -24,6 +24,8 @@ type Config struct {
 	Units map[string]string
 	// MaxFutureSkew is how far a measurement may be ahead of the backend clock.
 	MaxFutureSkew time.Duration
+	// MinimumTimestamp is the earliest accepted device measurement time.
+	MinimumTimestamp time.Time
 }
 
 // Service manages an MQTT connection and logs received telemetry.
@@ -68,6 +70,11 @@ func newClientOptions(cfg Config) (*mqtt.ClientOptions, error) {
 	// Reject an invalid timestamp policy before creating the MQTT client.
 	if cfg.MaxFutureSkew < 0 {
 		return nil, errors.New("maxFutureSkew must not be negative")
+	}
+
+	// An unset lower bound would silently allow implausible device timestamps.
+	if cfg.MinimumTimestamp.IsZero() {
+		return nil, errors.New("minimumTimestamp must be defined")
 	}
 
 	clientOptions := mqtt.NewClientOptions()

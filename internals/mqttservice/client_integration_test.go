@@ -22,10 +22,12 @@ func TestServiceConnect(t *testing.T) {
 	}
 
 	cfg := Config{
-		BrokerURL:    brokerURL,
-		ClientID:     fmt.Sprintf("backend-test-%d", time.Now().UnixNano()),
-		TopicFilters: []string{"home/+/+/+"},
-		Units:        map[string]string{"temperature": "C", "humidity": "percent"},
+		BrokerURL:        brokerURL,
+		ClientID:         fmt.Sprintf("backend-test-%d", time.Now().UnixNano()),
+		TopicFilters:     []string{"home/+/+/+"},
+		Units:            map[string]string{"temperature": "C", "humidity": "percent"},
+		MaxFutureSkew:    time.Second,
+		MinimumTimestamp: time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
 
 	service, err := NewService(cfg, slog.Default())
@@ -81,10 +83,12 @@ func TestServiceReceivesTelemetry(t *testing.T) {
 	topic := "home/indoor/" + deviceID + "/temperature"
 
 	cfg := Config{
-		BrokerURL:    brokerURL,
-		ClientID:     "backend-" + deviceID,
-		TopicFilters: []string{topic},
-		Units:        map[string]string{"temperature": "C"},
+		BrokerURL:        brokerURL,
+		ClientID:         "backend-" + deviceID,
+		TopicFilters:     []string{topic},
+		Units:            map[string]string{"temperature": "C"},
+		MaxFutureSkew:    time.Second,
+		MinimumTimestamp: time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
 
 	lines := make(chan string, 16)

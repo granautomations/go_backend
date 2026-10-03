@@ -10,7 +10,7 @@ The existing HTTP server in `cmd/server/main.go` remains the application entry p
 
 Last reviewed: **2026-10-03** against the backend code. We are in **step 4**: topic construction and payload encoding are implemented and tested; timestamp validation is implemented as an unwired helper, and the internal publishing method is not implemented. Parts of step 6 are already implemented. Checkboxes track specific work, not completion of the entire milestone.
 
-**Next small learning step:** introduce a testable clock and a minimum timestamp in the MQTT service policy, then write a broker-free service test showing rejection of a future-dated reading after parsing. `MaxFutureSkew` is now a documented `time.Duration` field, negative values are rejected during startup, and the full suite passes. Apply the same policy in the later internal publisher.
+**Next small learning step:** introduce a testable clock in the MQTT service, then write a broker-free service test showing rejection of a future-dated reading after parsing. The minimum-timestamp configuration checkpoint is complete: startup rejects an unset bound, unit tests cover rejection and acceptance, and the broker-test fixtures contain the initial 2020 bound. Ordinary tests and vet pass; the broker-backed tests still need a run against Mosquitto. Apply the same timestamp policy in the later internal publisher.
 
 ### 1. Local broker
 
@@ -67,6 +67,10 @@ Last reviewed: **2026-10-03** against the backend code. We are in **step 4**: to
 
 ### Verification evidence
 
+- On 2026-10-03, `go test ./... -count=1`, `go vet ./...`, and `git diff --check` passed after documenting the minimum-timestamp test, adding the date to both broker-test fixtures, and restoring idiomatic `t.Fatal(err)` calls. A focused verbose run confirmed `TestServiceConnect` and `TestServiceReceivesTelemetry` were skipped because `MQTT_TEST_BROKER` was unset; broker behavior was not reverified.
+- On 2026-10-03, `go test ./... -count=1`, `go vet ./...`, and `git diff --check` passed using a temporary Go build cache because the default cache was inaccessible to the sandbox. `MQTT_TEST_BROKER` was unset, so broker-backed tests were skipped. Their two `Config` fixtures still omit the required `MinimumTimestamp` and would fail service construction when enabled.
+- On 2026-10-03, `TestNewClientOptionsRejectsMissingMinimumTimestamp`, `go test ./... -count=1`, and `git diff --check` passed after the guard and positive test case were added. The ordinary suite skipped broker-backed checks; their `Config` fixtures still need the required minimum timestamp. The empty-topic-filter test also has an unrelated negative-skew value that should be corrected before calling the checkpoint complete.
+- Earlier on 2026-10-03, `TestNewClientOptionsRejectsMissingMinimumTimestamp` failed as intended because `newClientOptions` accepted an otherwise valid configuration without a minimum measurement date. After the guard was added, the test still needed a populated success case; that case was fixed before the later passing check above.
 - On 2026-10-03, `go test ./... -count=1` passed after adding startup validation for negative `MaxFutureSkew` and comments explaining the broker, client-ID, and subscription requirements. Broker-backed tests were skipped without `MQTT_TEST_BROKER`.
 - On 2026-10-03, `TestNewClientOptionsRejectsNegativeFutureSkew` compiled but failed (`expected an error for negative future skew`) after the field became `time.Duration`. This is the intended red test; do not claim the current full suite passes until the guard is implemented and verified.
 - On 2026-10-03, the first `TestNewClientOptionsRejectsNegativeFutureSkew` run failed to compile: `MaxFutureSkew` was declared `time.Time`, but the test assigns `-time.Second` (`time.Duration`). No service policy validation has been implemented yet.
@@ -97,6 +101,7 @@ Last reviewed: **2026-10-03** against the backend code. We are in **step 4**: to
 - Confirmed application scope (2026-10-02): apply the same minimum-date and future-skew policy to both received telemetry and the internal publishing method. Validate at each operation's processing time; do not give one path a weaker policy.
 - Confirmed placement (2026-10-03): keep `parseTelemetry` pure and independent of the clock. Perform incoming timestamp validation in the MQTT service after parsing, then reuse the same policy in the internal publisher.
 - Confirmed minimum-date policy (2026-09-27): device telemetry accepts 2020-01-01T00:00:00Z and later. The lower boundary is inclusive; the firmware's current plausibility check is slightly stricter (`>` rather than `>=`). No maximum-age ingestion rule should be introduced within the supported date range. Policy implementation and tests remain pending.
+- Confirmed configuration choice (2026-10-03): expose the minimum accepted measurement date as an explicit typed MQTT setting, later loaded from the centralized YAML configuration. Validate that it is present at startup; the initial configured value will be 2020-01-01T00:00:00Z.
 - Subscription recovery: two immediate attempts are bounded retry, not ongoing recovery. If both fail while the connection remains open, readiness stays false and no further attempt is scheduled. Choose a deliberate policy before claiming sustained recovery.
 
 ## Message contract

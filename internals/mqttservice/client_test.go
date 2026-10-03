@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -80,8 +81,10 @@ func TestOnConnectionLostClearsSubscription(t *testing.T) {
 // cannot start without any subscriptions.
 func TestNewClientOptionsRejectsEmptyTopicFilters(t *testing.T) {
 	_, err := newClientOptions(Config{
-		BrokerURL: "tcp://127.0.0.1:1883",
-		ClientID:  "backend-test",
+		BrokerURL:        "tcp://127.0.0.1:1883",
+		ClientID:         "backend-test",
+		MaxFutureSkew:    time.Second,
+		MinimumTimestamp: time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
 	})
 	if err == nil {
 		t.Fatal("expected an error when no topic filters are configured")
@@ -244,13 +247,42 @@ func TestSubscribeWithRetryExhausted(t *testing.T) {
 // settings fail during startup rather than during message handling.
 func TestNewClientOptionsRejectsNegativeFutureSkew(t *testing.T) {
 	cfg := Config{
-		BrokerURL:     "tcp://127.0.0.1:1883",
-		ClientID:      "backend-test",
-		TopicFilters:  []string{"home/+/+/+"},
-		MaxFutureSkew: -time.Second,
+		BrokerURL:        "tcp://127.0.0.1:1883",
+		ClientID:         "backend-test",
+		TopicFilters:     []string{"home/+/+/+"},
+		MaxFutureSkew:    -time.Second,
+		MinimumTimestamp: time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
 
 	if _, err := newClientOptions(cfg); err == nil {
 		t.Fatal("expected an error for negative future skew")
+	}
+}
+
+// TestNewClientOptionsRejectsMissingMinimumTimestamp verifies that an unset
+// lower bound is rejected while an explicitly configured bound is accepted.
+func TestNewClientOptionsRejectsMissingMinimumTimestamp(t *testing.T) {
+	cfg := Config{
+		BrokerURL:     "tcp://127.0.0.1:1883",
+		ClientID:      "backend-test",
+		TopicFilters:  []string{"home/+/+/+"},
+		MaxFutureSkew: time.Second,
+	}
+
+	t.Run("minimum timestamp omission", func(t *testing.T) {
+		_, err := newClientOptions(cfg)
+		if err == nil {
+			t.Fatal("expected an error for minimum timestamp omission")
+		}
+
+		if !strings.Contains(err.Error(), "minimumTimestamp") {
+			t.Fatalf("error = %q, want minimumTimestamp reason", err.Error())
+		}
+	})
+
+	cfg.MinimumTimestamp = time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	if _, err := newClientOptions(cfg); err != nil {
+		t.Fatal(err)
 	}
 }
