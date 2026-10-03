@@ -22,6 +22,8 @@ type Config struct {
 	TopicFilters []string
 	// Units maps supported metric names to the units assigned to readings.
 	Units map[string]string
+	// MaxFutureSkew is how far a measurement may be ahead of the backend clock.
+	MaxFutureSkew time.Duration
 }
 
 // Service manages an MQTT connection and logs received telemetry.
@@ -48,15 +50,24 @@ type subscriptionResultToken interface {
 // newClientOptions validates connection settings and configures the Paho client.
 func newClientOptions(cfg Config) (*mqtt.ClientOptions, error) {
 
+	// A missing broker address leaves the client with no connection target.
 	if cfg.BrokerURL == "" {
 		return nil, errors.New("brokerURL is required")
 	}
+
+	// A stable ID identifies this client's persistent session at the broker.
 	if cfg.ClientID == "" {
 		return nil, errors.New("clientID is required")
 	}
 
+	// Startup readiness requires at least one subscription to acknowledge.
 	if len(cfg.TopicFilters) == 0 {
 		return nil, errors.New("at least one topic filter is required")
+	}
+
+	// Reject an invalid timestamp policy before creating the MQTT client.
+	if cfg.MaxFutureSkew < 0 {
+		return nil, errors.New("maxFutureSkew must not be negative")
 	}
 
 	clientOptions := mqtt.NewClientOptions()

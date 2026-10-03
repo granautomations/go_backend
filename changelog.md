@@ -6,6 +6,14 @@ This initial baseline records the current MQTT work and project guidance as of 2
 
 ## Unreleased
 
+### 2026-10-03
+
+#### Changed
+
+- Clarified the MQTT plan: received timestamp validation belongs in the service after pure parsing, with the same policy reserved for internal publishing. No processing behavior changed.
+- Strengthened timestamp tests to assert the specific reasons for early, future-dated, and negative-skew rejection.
+- Added startup rejection for negative future-skew settings and documented why broker address, client ID, and subscriptions are required.
+
 ### 2026-10-02
 
 #### Added

@@ -3,6 +3,7 @@ package mqttservice
 import (
 	"encoding/json"
 	"math"
+	"strings"
 	"testing"
 	"time"
 )
@@ -180,51 +181,59 @@ func TestValidateTimestamp(t *testing.T) {
 	maxFutureSkew := 5 * time.Minute
 
 	tests := []struct {
-		name      string
-		timestamp time.Time
-		wantErr   bool
+		name        string
+		timestamp   time.Time
+		wantErr     bool
+		wantMessage string
 	}{
 		{
 
-			name:      "before minimum",
-			timestamp: minimum.Add(-time.Second),
-			wantErr:   true,
+			name:        "before minimum",
+			timestamp:   minimum.Add(-time.Second),
+			wantErr:     true,
+			wantMessage: "before minimum",
 		},
 		{
 
-			name:      "exact minimum",
-			timestamp: minimum,
-			wantErr:   false,
+			name:        "exact minimum",
+			timestamp:   minimum,
+			wantErr:     false,
+			wantMessage: "",
 		},
 		{
 
-			name:      "historical reading",
-			timestamp: now.Add(-24 * time.Hour),
-			wantErr:   false,
+			name:        "historical reading",
+			timestamp:   now.Add(-24 * time.Hour),
+			wantErr:     false,
+			wantMessage: "",
 		},
 		{
 
-			name:      "current reading",
-			timestamp: now,
-			wantErr:   false,
+			name:        "current reading",
+			timestamp:   now,
+			wantErr:     false,
+			wantMessage: "",
 		},
 		{
 
-			name:      "exact future boundary",
-			timestamp: now.Add(maxFutureSkew),
-			wantErr:   false,
+			name:        "exact future boundary",
+			timestamp:   now.Add(maxFutureSkew),
+			wantErr:     false,
+			wantMessage: "",
 		},
 		{
 
-			name:      "beyond future boundary",
-			timestamp: now.Add(maxFutureSkew + time.Second),
-			wantErr:   true,
+			name:        "beyond future boundary",
+			timestamp:   now.Add(maxFutureSkew + time.Second),
+			wantErr:     true,
+			wantMessage: "exceeds latest allowed",
 		},
 		{
 
-			name:      "zero time",
-			timestamp: time.Time{},
-			wantErr:   true,
+			name:        "zero time",
+			timestamp:   time.Time{},
+			wantErr:     true,
+			wantMessage: "before minimum",
 		},
 	}
 
@@ -235,15 +244,26 @@ func TestValidateTimestamp(t *testing.T) {
 				t.Fatalf("validateTimestamp(%v) error = %v, want error = %t",
 					tt.timestamp, err, tt.wantErr)
 			}
+			if tt.wantMessage != "" && !strings.Contains(err.Error(), tt.wantMessage) {
+				t.Fatalf("error = %q, want it to contain %q", err, tt.wantMessage)
+			}
 		})
 	}
 
 	if err := validateTimestamp(now, now, minimum, 0); err != nil {
 		t.Fatalf("zero future skew should be valid: %v", err)
 	}
-	if err := validateTimestamp(
-		now.Add(-time.Minute), now, minimum, -time.Second,
-	); err == nil {
-		t.Fatal("negative future skew should be rejected")
-	}
+
+	t.Run("negative future skew", func(t *testing.T) {
+		err := validateTimestamp(
+			now.Add(-time.Minute), now, minimum, -time.Second,
+		)
+
+		if err == nil {
+			t.Fatal("expected an error for negative future skew")
+		}
+		if !strings.Contains(err.Error(), "must not be negative") {
+			t.Fatalf("error = %q, want negative-skew reason", err.Error())
+		}
+	})
 }

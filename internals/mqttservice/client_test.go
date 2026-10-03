@@ -239,3 +239,18 @@ func TestSubscribeWithRetryExhausted(t *testing.T) {
 		t.Fatalf("error = %v, want it to wrap %v", err, secondErr)
 	}
 }
+
+// TestNewClientOptionsRejectsNegativeFutureSkew verifies invalid policy
+// settings fail during startup rather than during message handling.
+func TestNewClientOptionsRejectsNegativeFutureSkew(t *testing.T) {
+	cfg := Config{
+		BrokerURL:     "tcp://127.0.0.1:1883",
+		ClientID:      "backend-test",
+		TopicFilters:  []string{"home/+/+/+"},
+		MaxFutureSkew: -time.Second,
+	}
+
+	if _, err := newClientOptions(cfg); err == nil {
+		t.Fatal("expected an error for negative future skew")
+	}
+}

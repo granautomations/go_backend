@@ -8,9 +8,9 @@ The existing HTTP server in `cmd/server/main.go` remains the application entry p
 
 ## Progress and resume point
 
-Last reviewed: **2026-10-02** against the backend code. We are in **step 4**: topic construction and payload encoding are implemented and tested; timestamp validation and the internal publishing method are not implemented. Parts of step 6 are already implemented. Checkboxes track specific work, not completion of the entire milestone.
+Last reviewed: **2026-10-03** against the backend code. We are in **step 4**: topic construction and payload encoding are implemented and tested; timestamp validation is implemented as an unwired helper, and the internal publishing method is not implemented. Parts of step 6 are already implemented. Checkboxes track specific work, not completion of the entire milestone.
 
-**Next small learning step:** strengthen timestamp error-message assertions, then wire the tested `validateTimestamp` helper into incoming/outgoing telemetry with injected clock and policy values. The helper now rejects negative skew and accepts zero skew; `PublishTelemetry` remains the next feature after validation is integrated.
+**Next small learning step:** introduce a testable clock and a minimum timestamp in the MQTT service policy, then write a broker-free service test showing rejection of a future-dated reading after parsing. `MaxFutureSkew` is now a documented `time.Duration` field, negative values are rejected during startup, and the full suite passes. Apply the same policy in the later internal publisher.
 
 ### 1. Local broker
 
@@ -67,6 +67,12 @@ Last reviewed: **2026-10-02** against the backend code. We are in **step 4**: to
 
 ### Verification evidence
 
+- On 2026-10-03, `go test ./... -count=1` passed after adding startup validation for negative `MaxFutureSkew` and comments explaining the broker, client-ID, and subscription requirements. Broker-backed tests were skipped without `MQTT_TEST_BROKER`.
+- On 2026-10-03, `TestNewClientOptionsRejectsNegativeFutureSkew` compiled but failed (`expected an error for negative future skew`) after the field became `time.Duration`. This is the intended red test; do not claim the current full suite passes until the guard is implemented and verified.
+- On 2026-10-03, the first `TestNewClientOptionsRejectsNegativeFutureSkew` run failed to compile: `MaxFutureSkew` was declared `time.Time`, but the test assigns `-time.Second` (`time.Duration`). No service policy validation has been implemented yet.
+- On 2026-10-03, `go test ./... -count=1` and `git diff --check` passed after the negative-skew subtest began checking the specific rejection reason. No broker test ran in this check; service-level timestamp validation remains unimplemented.
+- On 2026-10-03, focused `TestValidateTimestamp` and `go test ./... -count=1` passed after adding reason checks for minimum/future timestamp errors. The negative-skew case still checks only error presence, not its reason. Broker tests were skipped without `MQTT_TEST_BROKER`.
+- On 2026-10-03, focused `TestValidateTimestamp` passed. The tests do not yet assert specific rejection reasons; service and publisher paths do not call the helper.
 - On 2026-10-02, `go test ./... -count=1` passed after explicit negative-skew validation and concise branch comments were added. Broker-backed tests were skipped without `MQTT_TEST_BROKER`.
 - On 2026-10-02, the corrected negative-skew test used `now.Add(-time.Minute)` and failed as intended (`negative future skew should be rejected`). Other timestamp boundary subtests passed; the explicit policy guard is not yet implemented.
 - On 2026-10-02, the focused timestamp test passed after zero/negative-skew cases were added, but the negative case is a false positive: `timestamp == now` exceeds `now.Add(-time.Second)` even without configuration validation. The helper still lacks an explicit negative-skew guard.
@@ -89,6 +95,7 @@ Last reviewed: **2026-10-02** against the backend code. We are in **step 4**: to
 - Confirmed future-skew policy (2026-09-27): initial configurable tolerance is five minutes. Accept the exact boundary and reject later timestamps from normal processing with a useful error/log; preserve the original measurement time. Supply reference time explicitly in tests and configuration through service dependencies. Backend clock accuracy is an operational prerequisite.
 - Confirmed configuration boundary (2026-10-02): zero future skew is a valid strict policy; negative future skew is invalid. The standalone helper and tests enforce this; centralized configuration validation and telemetry-path wiring remain pending.
 - Confirmed application scope (2026-10-02): apply the same minimum-date and future-skew policy to both received telemetry and the internal publishing method. Validate at each operation's processing time; do not give one path a weaker policy.
+- Confirmed placement (2026-10-03): keep `parseTelemetry` pure and independent of the clock. Perform incoming timestamp validation in the MQTT service after parsing, then reuse the same policy in the internal publisher.
 - Confirmed minimum-date policy (2026-09-27): device telemetry accepts 2020-01-01T00:00:00Z and later. The lower boundary is inclusive; the firmware's current plausibility check is slightly stricter (`>` rather than `>=`). No maximum-age ingestion rule should be introduced within the supported date range. Policy implementation and tests remain pending.
 - Subscription recovery: two immediate attempts are bounded retry, not ongoing recovery. If both fail while the connection remains open, readiness stays false and no further attempt is scheduled. Choose a deliberate policy before claiming sustained recovery.
 
