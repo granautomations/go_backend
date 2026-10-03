@@ -15,6 +15,7 @@ This initial baseline records the current MQTT work and project guidance as of 2
 #### Changed
 
 - Refreshed the MQTT plan against the current backend code and test results, clarifying the remaining timestamp, publishing, configuration, and server-lifecycle work.
+- Documented the decision to apply the same timestamp policy to received telemetry and internal publishing; neither path is wired to the helper yet.
 - Documented telemetry test functions and the timestamp-validation branches. Clarified that zero future skew is valid and negative skew is rejected; centralized configuration wiring is still pending.
 
 ### 2026-09-27
