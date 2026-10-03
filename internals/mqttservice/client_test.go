@@ -1,7 +1,10 @@
 package mqttservice
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"strings"
@@ -284,5 +287,128 @@ func TestNewClientOptionsRejectsMissingMinimumTimestamp(t *testing.T) {
 
 	if _, err := newClientOptions(cfg); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestParseAndValidateTelemetryRejectsFutureTimestamp verifies that the service
+// rejects a parsed reading beyond its configured future-skew allowance.
+func TestParseAndValidateTelemetryRejectsFutureTimestamp(t *testing.T) {
+	fixedNow := time.Date(2026, 9, 22, 10, 0, 0, 0, time.UTC)
+
+	service := &Service{
+		cfg: Config{
+			Units:            map[string]string{"temperature": "C"},
+			MaxFutureSkew:    5 * time.Minute,
+			MinimumTimestamp: time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
+		},
+		// Supply a function so every test call observes the same clock.
+		now: func() time.Time { return fixedNow },
+	}
+
+	// Build a reading six minutes ahead of the test's fixed clock.
+	topic := "home/indoor/esp32-1/temperature"
+	payload := []byte(fmt.Sprintf(
+		`{"value":22.4,"timestamp":%d}`,
+		fixedNow.Add(6*time.Minute).Unix(),
+	))
+
+	_, err := service.parseAndValidateTelemetry(topic, payload)
+	if err == nil {
+		t.Fatal("expected future timestamp to be rejected")
+	}
+
+	if !strings.Contains(err.Error(), "exceeds latest allowed") {
+		t.Fatalf("error = %q, want it to contain %q", err, "exceeds latest allowed")
+	}
+}
+
+// fakeTelemetryMessage supplies the MQTT fields read by handleMessage without a broker.
+type fakeTelemetryMessage struct {
+	topic   string
+	payload []byte
+}
+
+// Duplicate reports that this test message is not a redelivery.
+func (m fakeTelemetryMessage) Duplicate() bool { return false }
+
+// Qos reports the delivery level of this test message.
+func (m fakeTelemetryMessage) Qos() byte { return 0 }
+
+// Retained reports that this test message was not retained by the broker.
+func (m fakeTelemetryMessage) Retained() bool { return false }
+
+// Topic returns the topic supplied by the test.
+func (m fakeTelemetryMessage) Topic() string { return m.topic }
+
+// MessageID returns no broker-assigned identifier for this test message.
+func (m fakeTelemetryMessage) MessageID() uint16 { return 0 }
+
+// Payload returns the payload supplied by the test.
+func (m fakeTelemetryMessage) Payload() []byte { return m.payload }
+
+// Ack is a no-op because this broker-free test does not acknowledge delivery.
+func (m fakeTelemetryMessage) Ack() {}
+
+// Keep the fake aligned with the MQTT library's message contract.
+var _ mqtt.Message = fakeTelemetryMessage{}
+
+// TestHandleMessageAppliesTimestampPolicy verifies that received telemetry is
+// logged only when its measurement time satisfies the service policy.
+func TestHandleMessageAppliesTimestampPolicy(t *testing.T) {
+	fixedNow := time.Date(2026, 9, 22, 10, 0, 0, 0, time.UTC)
+	minimum := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	const topic = "home/indoor/esp32-1/temperature"
+
+	tests := []struct {
+		name       string
+		timestamp  time.Time
+		wantLog    string
+		wantReason string
+	}{
+		{name: "future", timestamp: fixedNow.Add(6 * time.Minute), wantLog: "mqtt message rejected", wantReason: "exceeds latest allowed"},
+		{name: "before minimum", timestamp: minimum.Add(-time.Second), wantLog: "mqtt message rejected", wantReason: "before minimum"},
+		{name: "historical", timestamp: fixedNow.Add(-24 * time.Hour), wantLog: "mqtt telemetry received"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var logs bytes.Buffer
+			service := &Service{
+				cfg: Config{
+					Units:            map[string]string{"temperature": "C"},
+					MaxFutureSkew:    5 * time.Minute,
+					MinimumTimestamp: minimum,
+				},
+				logger: slog.New(slog.NewJSONHandler(&logs, nil)),
+				// Fix the clock before invoking the callback to avoid wall-time-dependent assertions.
+				now: func() time.Time { return fixedNow },
+			}
+			payload := []byte(fmt.Sprintf(`{"value":22.4,"timestamp":%d}`, tt.timestamp.Unix()))
+
+			service.handleMessage(nil, fakeTelemetryMessage{topic: topic, payload: payload})
+
+			var record struct {
+				Message   string    `json:"msg"`
+				Topic     string    `json:"topic"`
+				Error     string    `json:"error"`
+				DeviceID  string    `json:"device_id"`
+				Timestamp time.Time `json:"timestamp"`
+			}
+			if err := json.Unmarshal(logs.Bytes(), &record); err != nil {
+				t.Fatalf("decode telemetry log: %v (raw log: %q)", err, logs.String())
+			}
+			if record.Message != tt.wantLog {
+				t.Fatalf("log message = %q, want %q", record.Message, tt.wantLog)
+			}
+			if tt.wantReason != "" {
+				if record.Topic != topic || !strings.Contains(record.Error, tt.wantReason) {
+					t.Fatalf("rejection log = %q, want topic %q and reason %q", logs.String(), topic, tt.wantReason)
+				}
+				return
+			}
+			if record.DeviceID != "esp32-1" || !record.Timestamp.Equal(tt.timestamp) {
+				t.Fatalf("accepted telemetry log = %q, want device and measurement timestamp", logs.String())
+			}
+		})
 	}
 }

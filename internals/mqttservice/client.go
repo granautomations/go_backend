@@ -31,12 +31,20 @@ type Config struct {
 // Service manages an MQTT connection and logs received telemetry.
 // Construct it with NewService, then call Connect once and Close on shutdown.
 type Service struct {
-	client     mqtt.Client
-	cfg        Config
-	logger     *slog.Logger
-	ready      chan error  // Result of the initial subscription attempt.
-	readyOnce  sync.Once   // Prevents reconnects from sending another startup result.
-	subscribed atomic.Bool // Whether the last subscription attempt was acknowledged.
+	// client handles broker connections, subscriptions, and publications.
+	client mqtt.Client
+	// cfg holds the connection and telemetry policy supplied at construction.
+	cfg Config
+	// logger records connection events and accepted or rejected telemetry.
+	logger *slog.Logger
+	// ready carries the first subscription result to the initial Connect call.
+	ready chan error
+	// readyOnce prevents reconnects from sending another startup result.
+	readyOnce sync.Once
+	// subscribed tracks whether the latest subscription was acknowledged.
+	subscribed atomic.Bool
+	// now supplies the current time; tests can replace it with a fixed clock.
+	now func() time.Time
 }
 
 // subscriptionClient contains the MQTT operation needed for one subscription attempt.
@@ -110,6 +118,7 @@ func NewService(cfg Config, logger *slog.Logger) (*Service, error) {
 		logger: logger,
 		// The callback can report before Connect starts receiving.
 		ready: make(chan error, 1),
+		now:   time.Now,
 	}
 
 	// Register handlers before connecting so queued messages have a receiver.
@@ -125,7 +134,8 @@ func NewService(cfg Config, logger *slog.Logger) (*Service, error) {
 // handleMessage parses an incoming MQTT message and logs either its telemetry
 // fields or the reason it was rejected.
 func (s *Service) handleMessage(_ mqtt.Client, msg mqtt.Message) {
-	reading, err := parseTelemetry(msg.Topic(), msg.Payload(), s.cfg.Units)
+	// Apply the timestamp policy before logging a reading as accepted.
+	reading, err := s.parseAndValidateTelemetry(msg.Topic(), msg.Payload())
 	if err != nil {
 		s.logger.Error("mqtt message rejected",
 			"topic", msg.Topic(),
@@ -265,4 +275,21 @@ func (s *Service) subscribeWithRetry(client subscriptionClient) error {
 	}
 
 	return fmt.Errorf("subscribe after %d attempts: %w", maxAttempts, lastErr)
+}
+
+// parseAndValidateTelemetry parses a received reading and applies the service's
+// configured timestamp bounds using the current clock.
+func (s *Service) parseAndValidateTelemetry(topic string, payload []byte) (Telemetry, error) {
+	reading, err := parseTelemetry(topic, payload, s.cfg.Units)
+	if err != nil {
+		return Telemetry{}, fmt.Errorf("parse MQTT telemetry: %w", err)
+	}
+	validationErr := validateTimestamp(reading.Timestamp, s.now(), s.cfg.MinimumTimestamp, s.cfg.MaxFutureSkew)
+
+	// Preserve the validator's reason while identifying which operation failed.
+	if validationErr != nil {
+		return Telemetry{}, fmt.Errorf("validate telemetry timestamp: %w", validationErr)
+	}
+
+	return reading, nil
 }

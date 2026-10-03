@@ -13,7 +13,9 @@ This initial baseline records the current MQTT work and project guidance as of 2
 - Clarified the MQTT plan: received timestamp validation belongs in the service after pure parsing, with the same policy reserved for internal publishing. No processing behavior changed.
 - Strengthened timestamp tests to assert the specific reasons for early, future-dated, and negative-skew rejection.
 - Added startup rejection for negative future-skew settings and documented why broker address, client ID, and subscriptions are required.
-- Added a required minimum measurement timestamp to MQTT service configuration, with startup validation and isolated unit coverage; updated broker-test fixtures for the new setting. Received telemetry is not yet checked against the bound.
+- Added a required minimum measurement timestamp to MQTT service configuration, with startup validation and isolated unit coverage; updated broker-test fixtures for the new setting.
+- Applied configured timestamp bounds to received MQTT telemetry before acceptance logging. Broker-free tests cover rejection of future and pre-minimum readings and acceptance of historical readings; the internal publishing path is still pending.
+- Documented each MQTT service field's role, including startup readiness and the injectable clock.
 
 ### 2026-10-02
 
